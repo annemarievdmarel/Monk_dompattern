@@ -1,0 +1,52 @@
+band_id,sex,population,year_captured,year_death,site_captured,cage_id_2021,mark_id1,mark_id2,mark_id3,mark_id
+A155,male,old_captives,2012,fall 2021,Coral Reef,WA_218,,,,
+A160,male,old_captives,2012,summer 2021,Coral Reef,WA_218,,,,
+A130,male,old_captives,2006,summer 2021,hatched_NWRC-FFS,WA_230,,,,
+A167,male,old_captives,2012,,Goulds,WA_230,,,,
+A150,female,old_captives,2012,,Perrine,WA_246,,,,
+A151,female,old_captives,2012,,Perrine,WA_246,,,,
+A144,female,old_captives,2007,summer 2021,hatched_NWRC-FFS,WA_246,,,,
+A173,male,old_captives,2020,,hatched_NWRC-FFS,WA_235,,,,
+A174,male,old_captives,2020,,hatched_NWRC-FFS,WA_235,,,,
+A163,male,old_captives,2012,,Goulds,WA_235,,,,
+A166,female,old_captives,2012,,Goulds,WA_229,,,,
+A138,female,old_captives,2007,summer 2021,Broward,WA_229,,,,
+A143,female,old_captives,2007,summer 2021,hatched_NWRC-FFS,WA_270,,,,
+A157,female,old_captives,2012,,Coral Reef,WA_270,,,,
+A132,male,old_captives,2007,summer 2021,Broward,WA_300,,,,
+A152,male,old_captives,2012,,Perrine,WA_300,,,,
+A027,male,old_captives,2003,summer 2021,Broward,WA_250,,,,
+A077,male,old_captives,2003,summer 2021,Broward,WA_250,,,,
+BB1253,male,new_captives,2021,,Galloway,EA_284,BBB,BBB,BBB,BBB
+BB1251,male,new_captives,2021,,Galloway,EA_284,OPP,OPP,OPP,OPP
+BB1255,male,new_captives,2021,,Galloway,EA_284,BOO,POO,POO,POO
+BB1252,female,new_captives,2021,,Galloway,EA_284,GBB,NPB,PPB,PPB
+BB1241,female,new_captives,2021,,Perrine,EA_253,POP,POP,POP,POP
+BB1245,male,new_captives,2021,,Perrine,EA_253,OOO,OOO,OOO,OOO
+BB1244,male,new_captives,2021,,Perrine,EA_253,PGG,PGG,PGG,PGG
+BB1243,male,new_captives,2021,fall 2021,Perrine,EA_240,BBP,,,BBP
+BB1240,male,new_captives,2021,fall 2021,Perrine,EA_240,BOB,BOB,BOB,BOB
+BB1242,male,new_captives,2021,,Perrine,EA_240,PPO,PPO,PPO,PPO
+BB1254,female,new_captives,2021,,Goulds,EA_248,OOP,OOP,OOP,OOP
+BB1246,female,new_captives,2021,,Goulds,EA_248,GGO,GGO,GGO,GGO
+BB1250,female,new_captives,2021,,Goulds,EA_215,GGG,GGG,GGG,GGG
+BB1249,female,new_captives,2021,summer 2021,Goulds,EA_215,PBB,PBB,PBB,PBB
+BB1248,male,new_captives,2021,,Goulds,EA_248,GPG,GPG,GPG,GPG
+BB1218,female,new_captives,2021,,Florida City,WA_221,PBO,PBO,PBO,PBO
+BB1211,female,new_captives,2021,,Florida City,WA_221,OBG,,,OBG
+BB1156,male,new_captives,2021,,Florida City,WA_237,GOP,GOP,GOP,GOP
+BB1155,male,new_captives,2021,,Florida City,WA_268,PPP,PPP,PPP,PPP
+BB1154,male,new_captives,2021,fall 2021,Florida City,WA_237,OGO,OGO,OGO,OGO
+BB1159,male,new_captives,2021,,Florida City,WA_268,GOO,GOO,GOO,GOO
+BB1158,male,new_captives,2021,,Florida City,WA_268,OBB,OBB,OBB,OBB
+BB1157,male,new_captives_aviary,2021,,Florida City,WA_206,,,,
+BB1153,female,new_captives_aviary,2021,fall 2021,Florida City,WA_206,,,,
+BB1151,male,new_captives_aviary,2021,fall 2021,Florida City,WA_225,,,,
+BB1152,female,new_captives_aviary,2021,,Florida City,WA_225,,,,
+BB1215,female,new_captives_aviary,2021,,Florida City,WA_220,,,,
+BB1219,female,new_captives_aviary,2021,fall 2021,Florida City,WA_220,,,,
+BB1212,female,new_captives_aviary,2021,,Florida City,WA_220,,,,
+BB1214,male,new_captives_aviary,2021,,Florida City,WA_234,,,,
+BB1217,female,new_captives_aviary,2021,,Florida City,WA_249,,,,
+BB1210,female,new_captives_aviary,2021,,Florida City,WA_249,,,,
+BB1216,male,new_captives_aviary,2021,,Florida City,WA_249,,,,
