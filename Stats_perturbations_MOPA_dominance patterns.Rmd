@@ -30,7 +30,7 @@ Figures
 sessionInfo()
 
 #citation('diagram')
-citation('ggridges')
+#citation('ggridges')
 ```
 
 
@@ -52,11 +52,7 @@ library(vegan)
 
 
 # Import data
-First, we have to run the "BehaveTable data import.Rmd" to compile the behavioral observations. 
 
-I included the code to remove the duplicates here as we are only looking at displacements and crowds, but I also have that in a separate Rmd script ("cleanup interaction file.Rmd") to include the other interactions. 
-
-Data files will be present in the Github repository, so we can link R to the repository
 ```{r data import, include=FALSE, echo=FALSE}
 ## raw data
 behave_agg <- read.csv("data/2021_interactions_bin0-12.csv") %>%
@@ -104,10 +100,17 @@ focal_rank_agg <- read.csv("./output/id_level_agg_longperturbation.csv")
 
 
 # observation hours:
-hours_obs_raw <- read.csv("2021_observation hours_cleaned.csv") %>%
+hours_obs_raw <- read.csv("./data/2021_observation hours_cleaned.csv") %>%
   dplyr::select(-X)
 
-bins <- read.csv("../field season 2021/2021_3daybins.csv") %>%
+
+
+
+```
+
+# periods
+```{r}
+bins <- bin.dates %>%
   dplyr::select(date,  rank_assessment) %>%
   drop_na() %>%
   rename(bin=rank_assessment) %>% 
@@ -116,10 +119,7 @@ bins <- read.csv("../field season 2021/2021_3daybins.csv") %>%
 
 bindays <- bins %>%
  slice(1)
-
-
 ```
-
 
 
 # bird list
@@ -355,7 +355,8 @@ ec_rankXbin <- ec_rank %>%
   arrange(dom_ec)
 
 focalbirds <- ec_rankXbin %>%
-  filter(bin %in% c(1, 5, 9), rank==1)
+  filter(bin %in% c(1, 5, 9), rank==1) %>%
+  arrange(bin)
 #focalbirds
 
 ```
@@ -577,6 +578,10 @@ strategies_longperturb <- strategies_longperturb %>%
   dplyr::select(-strategy)
                                             
 
+```
+
+```{r}
+# save file
 write.csv(strategies_longperturb, "output/dompatterns_longperturbations.csv")
 ```
 
@@ -697,7 +702,7 @@ summ_hoursXbin <- total_hoursXbin %>%
 sumperson <- total_hoursXbin %>%
   mutate(sumperson=hours_obs*4)
 
-# pee breaks
+# personal breaks
 breaks <- hoursobs %>% 
   filter(!subject %in% c("lunch","")) %>%
   group_by(bin) %>%
@@ -920,7 +925,7 @@ before_after <- random_patterns %>%
   
   dplyr:: select(runID, bin, obs_pattern_change,  random_pattern_change)
 
-write.csv(before_after, "output/dompattern_random.csv")
+#write.csv(before_after, "output/dompattern_random.csv")
 
 glimpse(before_after)
 
@@ -1685,8 +1690,8 @@ glimpse(attrib_edge)
 
 ## visualize aggression networks
 
-### ggraph with y-axis (20 birds)
-somehow only one bin works at a time, not the loop
+### network graph (20 birds)
+
 
 First, for all 20 birds, where focals are highlighted
 bin20birds <- c(1,4,5,8,9,12)
@@ -1800,12 +1805,12 @@ p8 <-
 
  p8
 
- #ggsave(paste0("./figures/aggnwXbin_CBreport_bin",run.code,"_3x3.pdf"), 
+ #ggsave(paste0("./figures/aggnwXbin_bin",run.code,"_3x3.pdf"), 
 #        width = 3, height = 3,
 #       device = cairo_pdf,
 #       plot=p) #device = cairo_pdf,
 
-# ggsave(paste0("./figures/aggnwXbin_CBreport_bin",run.code,".pdf"), 
+# ggsave(paste0("./figures/aggnwXbin_bin",run.code,".pdf"), 
 #       device = cairo_pdf,
 #       plot=p) 
 #dev.off()
@@ -1825,12 +1830,12 @@ p8 <-
 nw_after_reintro <- ggarrange(p4, p8, p12, 
                                nrow = 3, ncol = 1)
 nw_after_reintro
-ggsave( "./figures/nw_after reintro.pdf",
+ggsave( "./figures/nw_after==reintro.pdf",
         width = 3.5, height = 9,
         device = cairo_pdf)
 ```
 
-### graph with y-axis (19 birds)
+### network graph (19 birds)
 Second, for 19 birds, where focals are removed; this affects the layout. 
 bin19birds <- c(2,3,6,7,10,11) 
 
@@ -1972,12 +1977,12 @@ p11 <-
 
  p11
 
- ggsave(paste0("./figures/aggnwXbin_CBreport_bin",run.code,"_3.5x3.pdf"), 
+ ggsave(paste0("./figures/aggnwXbin_bin",run.code,"_3.5x3.pdf"), 
         width = 3.5, height = 3,
        device = cairo_pdf,
        plot=p) #device = cairo_pdf,
 
- ggsave(paste0("./figures/aggnwXbin_CBreport_bin",run.code,".pdf"), 
+ ggsave(paste0("./figures/aggnwXbin_bin",run.code,".pdf"), 
        device = cairo_pdf,
        plot=p) 
 #dev.off()
@@ -1985,42 +1990,10 @@ p11 <-
 
 }
 
-# save plots
-nw_after_removal <- ggarrange(p2, p6, p10,  
-                              nrow = 3, ncol = 1)
-nw_after_removal
-ggsave( "./figures/nw_after_removal.pdf",
-        width = 3.5, height = 9,
-        device = cairo_pdf)
-
-nw_before_reintro <- ggarrange(p3, p7, p11, 
-                               nrow = 3, ncol = 1)
-nw_before_reintro 
-ggsave( "./figures/nw_before_reintro.pdf",
-        width = 3.5, height = 9,
-        device = cairo_pdf)
-
-```
-
-
-### combine plots
-
-doesn't work either 
-```{r}
-# combine plots
-
-ggarrange(p1,p2,p3,p4,
-          p5,p6,p7,p8,
-          p9,p10,p11,p12,
-          nrow = 3, ncol = 4)
-
-ggarrange(p2,p3,
-          p6,p7,
-          p10,p11,
-          nrow = 3, ncol = 2)
 
 
 ```
+
 
 
 ## Network summary
