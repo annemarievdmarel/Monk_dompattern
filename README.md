@@ -6,7 +6,7 @@ We provide the code and data for all the analyses for the manuscript titled "Per
 
 LICENSE: CC BY-NC 4.0
 
-CITATION DOI:
+CITATION DOI: 10.5281/zenodo.6847366
 
 DESCRIPTION: We performed three social manipulations where we removed and reintroduced a top-ranked monk parakeet for 8 days each to study whether these perturbations of a key individual were sufficient to trigger a shift in group-level dominance patterns.
 
