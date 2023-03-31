@@ -1,0 +1,823 @@
+---
+title: "2020_dominance patterns"
+author: "Annemarie van der Marel"
+date: '2022-10-18'
+output: html_document
+---
+
+
+R code to obtain the dominance hierarchy of 3-day period in 2020
+  - social dominance pattern
+
+Basics
+-	Number of total aggressive events observed
+-	Total hours observed
+
+Figure
+-	Daily amount of aggression received/given corrected for hours observed
+-	Time series social dominance patterns
+-	transition diagram observed and random expectation
+
+
+
+Decisions to make for datasets:
+- use crowds and displacements combined
+- use aggression away from feeder or all aggression
+- remove duplicates combined 
+
+#Session info
+```{r}
+sessionInfo()
+
+#citation('diagram')
+
+```
+
+
+#Load packages
+```{r, include=FALSE, echo=FALSE}
+library(tidyverse)
+library(reshape2)
+library(stringr)
+library(purrr)
+library(domstruc) #install_github("danm0nster/domstruc")
+library(ggraph)
+library(diagram)
+library(ggpubr)
+library(ggridges)
+library(igraph)
+library(ggraph)
+library(vegan)
+library(lubridate)
+```
+
+# Import raw data
+
+
+```{r}
+behave_clean <- read.csv('./data/2020_interactions_all.csv') %>%
+  dplyr::select(-X)
+  
+obs.hours <- read.csv('./data/2020_observation hours.csv')
+
+```
+
+
+
+## Timeline
+```{r}
+# add perturbation type (fitness/nonsocial/social)
+fitness <- c('2020-03-18', '2020-03-19', '2020-03-20') # '2020-03-18' -> introduction, only 25 agonistic interactions observed
+capture_dates <- c('2020-03-17', '2020-03-21', '2020-03-30') # intro, nonsocial (none removed), social (removal)
+nonsocial <- c( '2020-03-22','2020-03-23', '2020-03-24', 
+               '2020-03-27', '2020-03-28', '2020-03-29') #perturbation = 21 until 29 March
+social<- c('2020-03-31','2020-04-01','2020-04-02') # perturbation = 30 March until April 2
+
+date <- sort(unique(behave_clean$date))
+bin <- c(1,1,1,2,2,2,2,3,3,3,4,4,4,4)
+bin.dates <- data.frame(date, bin) 
+bin.dates <- bin.dates %>%
+  mutate(period=if_else(date %in% fitness,"fitness",
+                        if_else(date %in% nonsocial, "nonsocial",
+                                if_else(date %in% social, "social", "capture"))))
+
+
+```
+
+
+## Bird list
+
+change for each perturbation as different birds are removed
+```{r}
+# bird list
+birdIDs_capture<- read.csv("./data/2020_capture_file.csv") 
+
+birdIDs_capture %>%
+  group_by(date) %>%
+  tally() # 21 birds
+
+birdIDs <- birdIDs_capture %>% 
+  filter(date=='2020-03-17') %>%
+  dplyr::select(bandID, tagID)
+
+##list of all valid color combinations
+
+# change each time
+bird.list <- sort(unique(birdIDs$tagID)) # change for social period
+length(bird.list)
+bird.list
+
+# list of all possible dyads
+dyad.list <- expand.grid(bird.list, bird.list) #head(dyad.list)
+names(dyad.list) <- c("actor", "subject")
+dyad.list <- subset(dyad.list, actor!=subject)
+dyad.list$dyadID <- paste(dyad.list$actor, dyad.list$subject, sep="-")
+
+```
+
+## check data
+
+Include bin and period to behavior file + orderkey
+```{r}
+behave_bin <- behave_clean %>%
+  left_join(bin.dates) %>%
+  filter(period!="capture") # remove capture events as those are stressful for the birds
+
+unique(behave_bin$bin)
+head(behave_bin)
+tail(behave_bin)
+
+# how many days per period
+day_sum<- behave_bin %>% 
+  group_by(period, bin) %>%
+  summarise(n=n_distinct(date))
+
+## check for removed birds in social perturbation period
+# GBB and BBR
+check_social_actor<-filter(behave_bin, period=="social", 
+                           actor == "BBR"|actor =="GBB")
+check_social_subject<-filter(behave_bin, period=="social", 
+                             subject == "BBR"|subject =="GBB")
+check_social<-bind_rows(check_social_actor,check_social_subject)
+length(behave_bin$orderkey)-length(check_social$orderkey) 
+
+#behave_correct<-anti_join(behavekey, check_social, by = "orderkey")
+#length(behave_correct$orderkey)
+
+```
+
+
+# Remove duplicates
+BY bin
+
+more conservative: removing duplicates using crowds and displacements combined from the beginning, results in less agonistic events but mistakes per behavior (entered crowd while it had to be displacement) are excluded. 
+
+```{r remove duplicates conservative method X bin}
+#### Remove duplicates for displacements and crowds ####
+##more conservative: removing duplicates by crowds and displacements combined
+#behave_totalagg<-behave_totalagg_removal
+unique(behave_bin$behavior)
+
+# filter displacement & crowd data from all data
+aggDC <- behave_bin %>% 
+  subset(behavior=="displace" | behavior=="crowd", 
+         bin!=4) %>%
+  dplyr::select(orderkey,  sessionKEY, period, bin, date, time, actor, subject, behavior)
+
+str(aggDC)
+length(aggDC$sessionKEY)
+
+# keep only observations where the actor is in the list of bird IDs
+aggDC.goodID <- subset(aggDC, actor %in% bird.list)
+
+# keep only observations where the actor (found above) and the subject are both in the list of bird IDs
+aggDC.goodID <- subset(aggDC.goodID, subject %in% bird.list)
+
+
+## for total agonistic events (crowds and displacements combined)
+#finds n CD and crowds by sessionKEY, date, time, actor, subject, behavior
+dyad.totalagg.key <- aggDC.goodID %>% 
+  dplyr::group_by(sessionKEY, bin, date, time,actor, subject) %>%  # removed , behavior
+  tally() # counts behaviors that were observed within the same minute
+
+#finds max agg per actor by date, time, and behavior type. Return just that summary
+dyad.totalagg.maxkey <- dyad.totalagg.key %>% 
+  group_by(actor, subject,bin,  date, time) %>% # removed behavior, behavior
+  slice(which.max(n)) %>% # n.aggXaggXkey if summarise, n if tally
+  ungroup()
+#head(dyad.totalagg.maxkey)
+
+#finds n disps per actor by date for summarized/trimmed data
+dyad.totalaggXbin <- dyad.totalagg.maxkey %>% 
+  group_by(actor, subject, bin) %>% # removed behavior to get total aggression
+  summarise(n.aggXbin=sum(n)) %>% 
+  ungroup()
+#head(dyad.totalaggXbin)
+sum(dyad.totalaggXbin$n.aggXbin)
+
+
+#Here we are interested in total number of interactions instead of chronological #order of interactions. If you require order of interactions, then next steps will #be different from the following setup as you will have to add the behaviors with #n>1 as separate rows. 
+
+# save summarized aggression X bin df
+#write.csv(dyad.totalaggXbin, "./output/dyad.aggXbin2020.csv")
+
+```
+
+
+# Helper functions & data
+```{r echo=FALSE}
+# include calibri as text font
+windowsFonts(Calibri = windowsFont("Calibri"))
+#windowsFonts()
+
+
+#make matrix function (from dataframe, 1st col with row names)
+matrix.please<-function(x) {
+  m<-as.matrix(x[,-1])
+  rownames(m)<-x[,1]
+  m
+}
+
+
+
+```
+
+
+# Analyses
+##Total aggression
+```{r sum total aggression}
+## Summarize displacements & crowds combined --> total aggression
+
+#head(dyad.totalaggXbin) # crowds and displacement combined from the start, which is more conservative
+str(dyad.totalaggXbin)
+dyad.totalaggXbin <- dyad.totalaggXbin %>%
+  filter(bin!=4)
+
+# check 
+unique(dyad.totalaggXbin$actor)
+length(unique(dyad.totalaggXbin$actor))
+unique(dyad.totalaggXbin$subject)
+length(unique(dyad.totalaggXbin$subject))
+sort(unique(dyad.totalaggXbin$bin))
+
+sum(dyad.totalaggXbin$n.aggXbin)
+
+# summarize total aggression events per bin
+sum.aggDCXbin_conservative <-dyad.totalaggXbin %>%
+  group_by(bin) %>% 
+  filter(bin!=4) %>%
+  summarize(n.agg = sum(n.aggXbin), 
+            n.dyads=length(actor), 
+            n.actors=n_distinct(actor),
+            n.subjects=n_distinct(subject))
+#head(sum.aggDCXbin_conservative)
+sum.aggDCXbin_conservative
+
+#write.csv(sum.aggDCXbin_conservative, "./output/aggression_summ2020.csv")
+
+
+n.aggDC.conservative <- sum(sum.aggDCXbin_conservative$n.agg)
+
+# check 
+sum(dyad.totalaggXbin$n.aggXbin)==sum(sum.aggDCXbin_conservative$n.agg)
+sort(unique(dyad.totalaggXbin$actor)) == sort(bird.list)
+
+
+
+
+
+
+```
+In 2020, we observed 3148 interactions (excluding unknown individuals and duplicates)
+
+
+
+## Fig 1a) aggression rate controlled for person hours observed and group size
+
+#### observation hours
+Total hours is calculated without pee breaks as observations continued. Calculate for
+  total hours per bin
+
+
+
+
+```{r observation hours X bin}
+
+bin.dates$n_observers <- c(3,3,3,3,3,3,3,3,4,4,4,4,4,4)
+
+obs_hours <- obs.hours %>%
+  separate(date, into=c("day", "month", "year")) %>%
+  unite(date, year, month, day, sep = "-")
+
+## lubridate: hm(..., quiet = FALSE, roll = FALSE)
+obs_hours$start <-  hm(obs_hours$start)
+obs_hours$end <-  hm(obs_hours$end)
+
+# we are missing observation hours for the first 2 days (march 18 and 19). Get min and max time from behavioral dataframe
+obshoursday <- behave_clean %>%
+  filter(date %in% c("2020-03-18", "2020-03-19")) %>%
+  group_by(date) %>%
+  summarize(min=min(time),
+            max=max(time)) 
+
+obshoursday$min <-  hm(obshoursday$min)
+obshoursday$max <-  hm(obshoursday$max)
+
+obshoursday <- obshoursday %>%
+   mutate(totaltime=as.duration(max-min), # calculate total time
+         totaltime_min=as.numeric(max-min, units="mins"),
+         totaltime_hour=as.numeric(max-min, units="hours")) %>%
+  summarize(sum=sum(totaltime_hour))
+
+
+
+## total observation hours
+hoursobs <- obs_hours %>%
+  left_join(bin.dates, by="date") %>%
+  filter(period!="capture") %>%
+  mutate(totaltime=as.duration(end-start), # calculate total time
+         totaltime_min=as.numeric(end - start, units="mins"),
+         totaltime_hour=as.numeric(end - start, units="hours")) %>%
+  filter(name=="observations") %>%
+  group_by(bin, date, n_observers) %>%
+  summarize(hours_obs=sum(totaltime_hour)) 
+
+bin1 <- obshoursday$sum+hoursobs$hours_obs[hoursobs$bin==1]
+hoursobs$hours_obs[hoursobs$bin==1] <- bin1
+sum(hoursobs$hours_obs)
+
+
+
+sumhoursobs <- hoursobs %>% 
+  filter(bin!=4) %>%
+  group_by(bin) %>% 
+  summarize(totalhours_obs=sum(hours_obs),
+            meanhoursobs=mean(hours_obs),
+            sdhoursobs=sd(hours_obs),
+            n=n(),
+            se=sdhoursobs/sqrt(n))
+
+sum(sumhoursobs$totalhours_obs) # hours observed for bin 1-3
+
+```
+61.4 hours and 191.3 person hours across 12 days, with an average of 20.5 ± 3.6 (SD) hours of observation per three-day bin (n = 3 bins)
+
+
+Person hours  (remove breaks and multiply observation hours by the number of observers)
+
+```{r}
+
+personhours <- obs_hours %>%
+  left_join(bin.dates, by="date") %>%
+  filter(period!="capture") %>%
+  mutate(totaltime=as.duration(end-start), # calculate total time
+         totaltime_min=as.numeric(end - start, units="mins"),
+         totaltime_hour=as.numeric(end - start, units="hours")) %>%
+  #filter(name=="observations") %>%
+  group_by(bin, date, subject) %>%
+  summarize(breaks=sum(totaltime_hour)) %>%
+  filter(subject=="break") %>%
+  right_join(hoursobs) %>% 
+    dplyr::select(-subject)
+personhours[is.na(personhours)] <- 0
+
+personhoursXbin <- personhours %>%
+  mutate(totalhours=hours_obs*n_observers,
+         personhours=totalhours-breaks) %>%
+  group_by(bin) %>%
+  summarize(personhours=sum(personhours)) %>%
+  filter(bin!=4)
+
+sum(personhoursXbin$personhours)
+```
+
+```{r}
+## combine
+obs.hours <- hoursobs %>% 
+  filter(bin!=4) %>%
+  group_by(bin) %>%
+  summarize(hours_obs=sum(hours_obs)) %>%
+  left_join(personhoursXbin) %>%
+  dplyr::select(bin, hours_obs, personhours ) 
+```
+
+
+#### groups size and aggression rate X bin
+
+```{r plot aggression controlled for group size and hours observed}
+
+
+# total aggression
+glimpse(sum.aggDCXbin_conservative)
+
+
+# mean total of agonistic events observed per bin
+summ_agXbin <- sum.aggDCXbin_conservative %>%
+  summarize(mean_ag =mean(n.agg),
+            sd_ag = sd(n.agg))
+
+# mean and SD value
+summ_ag_all <- sum.aggDCXbin_conservative %>% 
+  filter(bin!=4) %>%
+  mutate(birds=n.subjects)
+summ_ag_all$birds[summ_ag_all$bin==2]<-21
+summ_ag_all <- summ_ag_all %>%
+  left_join(obs.hours, by="bin") %>%
+  mutate(ag_bird= n.agg/birds, 
+         ag_bird_obs= n.agg/birds/hours_obs, 
+         ag_person_obs = n.agg/birds/personhours, 
+         mean = mean(ag_person_obs),
+         sd = sd(ag_person_obs),
+         n = n(),
+         se=sd/sqrt(n))
+
+ave.ag.rate <- mean(summ_ag_all$ag_bird_obs)
+sd.ag.rate <- sd(summ_ag_all$ag_bird_obs)
+
+# overall agression rate /person hours (mean +- SE)
+ave.ag.rate <- mean(summ_ag_all$ag_person_obs)
+sd.ag.rate <- sd(summ_ag_all$ag_person_obs)
+
+
+  
+
+
+```
+
+#### plot aggression rate
+
+```{r}
+plot_aggression_control2020 <-  summ_ag_all %>%
+  filter(bin!=4) %>%
+  ggplot( aes(x = bin)) +
+  
+ # add average rate of aggression
+  geom_hline(yintercept = ave.ag.rate, color = alpha("grey", 0.6), size=2) +
+  
+  # aggression / bird / person hours observed
+  geom_line(aes(y=ag_person_obs), size=1) + 
+  geom_point(aes(y=ag_person_obs), size=3) +
+  
+  scale_y_continuous(limits=c(0.0, 2.0)) +
+  scale_x_continuous(limits = c(1, 3), # change to 4 with removal period included
+                     breaks= c(1,2,3)) +
+  
+  theme_classic() +
+  theme(legend.position="bottom",
+         text = element_text(size=14),
+         axis.text = element_text(size=12),
+         axis.title.x = element_blank()) +
+   #     axis.text.x = element_blank(),
+    #    axis.ticks.x=element_line()) +
+  labs(y="aggression rate")  #, title = "Amount of aggression controlled for group size and hours observed"
+  
+ # geom_vline(xintercept = 1.5, linetype="solid", color =  alpha("black", 0.6)) + # nonsocial perturbation
+#  geom_vline(xintercept = 3.5, linetype="dashed", color =  alpha("black", 0.6)) + # removal of 2 birds (top-ranked and bottom-ranked injured bird)
+  
+ 
+ 
+plot_aggression_control2020
+```
+
+
+
+
+# Individual dominance rank X bin 
+This is the code to identify the top-ranked bird in the bins prior the removal. 
+
+```{r indivdidual rank}
+dyad.totalaggXbin <-read.csv("./output/dyad.aggXbin2020.csv")
+
+# check data
+sort(unique(dyad.totalaggXbin$actor))
+sort(unique(dyad.totalaggXbin$subject))
+length(unique(dyad.totalaggXbin$actor))
+length(unique(dyad.totalaggXbin$subject))
+
+
+#### DOMINANCE RANK BY bin####
+
+#head(dyad.totalaggXbin)
+
+# make empty data frame to put data in
+ec_rank <- data.frame(run.code=character(),
+                      bird.list=character(), 
+                      dom_ec=numeric(),
+                      rank=numeric())
+
+# run = 1
+
+start.time <- Sys.time()
+
+# select only bins prior removal
+rank_assessment_bins <- c(1,2,3)
+
+
+#i=1
+
+for(i in seq_along(rank_assessment_bins)){
+  run.code <- rank_assessment_bins[i]
+  print(run.code)
+  run.data <- subset(dyad.totalaggXbin, bin==run.code)
+  
+# number of dyads correct?
+  #length(run.data$actor)
+  #check <- sum.aggXday %>% filter(date==run.code)
+  #head(check)
+  
+  data_alldyads <- merge(dyad.list, run.data, all.x=TRUE,
+                       by=c("actor", "subject")) 
+  
+  #head(data_alldyads)
+  #length(unique(data_alldyads$dyadID)) # with 20 birds: 380 dyads, with 21 birds should be 420 and with 22 462 dyads
+  
+  data_alldyads$date<-run.code
+  
+ #fill newly-merged data with 0's where no interactions
+ data_alldyads[is.na(data_alldyads)] <- 0
+  
+   #print a check
+  check <- length(data_alldyads$actor)
+  print(check)
+
+# matrix  
+  mx <- reshape2::dcast(data_alldyads, actor~subject, value.var="n.aggXbin") #head(ref.behavior1.mx)
+  mx[is.na(mx)] <- 0 #for linearity measure, matrix needs to be fully filled, no NAs
+  mx <- matrix.please(mx)
+  
+  ## dominance
+  dom_ec <- dom_ec(mx)
+
+  rank <- dom_ranks(dom_ec)
+
+
+  # combine in dataframe
+  pool <- cbind.data.frame(run.code, 
+                         bird.list,
+                         dom_ec,
+                         rank)
+
+  ec_rank<-rbind(ec_rank, pool )
+
+}
+
+end.time <- Sys.time()
+
+#Time to run:
+end.time - start.time
+
+# check
+glimpse(ec_rank)
+length(unique(ec_rank$run.code))
+check <- ec_rank %>% 
+  group_by(run.code) %>% 
+  summarize(length(bird.list))
+
+ec_rankXbin <- ec_rank %>%
+  rename(bin=run.code, id=bird.list) %>%
+  mutate(power=1-dom_ec, 
+         rank=22-rank) %>%
+  group_by(bin) %>%
+  arrange(dom_ec)
+
+focalbirds <- ec_rankXbin %>%
+  filter(bin %in% c(3), rank==1)
+#focalbirds; BBG and GBB had very similar power scores, so we decided by coin toss which bird to remove (GBB)
+
+```
+
+
+
+# Social dominance pattern X 3-day bin
+We have to run the dominance pattern analysis separately for the removal periods as we excluded one of the group members. Therefore when we are making the matrix we have to filter out the top-ranked focal bird, which is a different ID each trial. 
+
+```{r}
+#dyad.totalaggXbin <-read.csv("./output/dyad.aggXbin.csv")
+dyad.totalaggXbin<- read.csv("./output/dyad.aggXbin2020.csv") %>% 
+  select(-X)
+
+glimpse(dyad.totalaggXbin)
+
+unique(dyad.totalaggXbin$actor)
+unique(dyad.totalaggXbin$subject)
+length(unique(dyad.totalaggXbin$actor))
+length(unique(dyad.totalaggXbin$subject))
+
+
+## for bins with all 21 birds ----
+bin21birds<- c(1,2,3)
+dyad.totalaggXbin_all <- dyad.totalaggXbin %>%
+  filter(bin %in% bin21birds)
+
+# change bird list
+bird.list <- sort(unique(birdIDs$tagID)) # change for social period
+length(bird.list)
+bird.list
+
+# list of all possible dyads
+dyad.list <- expand.grid(bird.list, bird.list) #head(dyad.list)
+names(dyad.list) <- c("actor", "subject")
+dyad.list <- subset(dyad.list, actor!=subject)
+dyad.list$dyadID <- paste(dyad.list$actor, dyad.list$subject, sep="-")
+
+unique(dyad.totalaggXbin_all$actor)
+unique(dyad.totalaggXbin_all$subject)
+length(unique(dyad.totalaggXbin_all$actor))
+length(unique(dyad.totalaggXbin_all$subject))
+
+## removal trial 1 ----
+bin19birds <- c(4)
+dyad.totalaggXbinR1 <- dyad.totalaggXbin %>%
+  filter(bin %in% c(4))
+unique(dyad.totalaggXbinR1$bin)
+
+removed_birds <- c("BBR", "GBB")
+birdIDs_removal1 <- birdIDs %>% 
+  filter(!tagID %in% removed_birds)
+
+# change bird list
+bird.list <- sort(unique(birdIDs_removal1$tagID)) # change each time
+length(bird.list)
+bird.list
+
+# list of all possible dyads
+dyad.list <- expand.grid(bird.list, bird.list) #head(dyad.list)
+names(dyad.list) <- c("actor", "subject")
+dyad.list <- subset(dyad.list, actor!=subject)
+dyad.list$dyadID <- paste(dyad.list$actor, dyad.list$subject, sep="-")
+
+unique(dyad.totalaggXbinR1$actor) # is BBB excluded?
+unique(dyad.totalaggXbinR1$subject)
+length(unique(dyad.totalaggXbinR1$actor))
+length(unique(dyad.totalaggXbinR1$subject))
+
+
+
+
+```
+
+## observed dominance pattern
+
+```{r Dominance pattern using crowds and displacements_ conservative, echo=FALSE}
+# order date 
+#head(dyad.totalaggXbin)
+dyad.totalaggXbinR1<- dyad.totalaggXbin_all %>%
+    arrange( bin, by_group = FALSE) 
+
+
+# make empty data frame to put data in
+strategies <- data.frame(run.code=character(),
+                      focus=numeric(),
+                      position=numeric(),
+                      strategy=character())
+
+# run = 1
+set.seed(42)
+start.time <- Sys.time()
+
+loopby<-unique(dyad.totalaggXbinR1$bin)
+
+
+#i=1
+
+for(i in seq_along(loopby)){
+  run.code <- loopby[i]
+  print(run.code)
+  run.data <- subset(dyad.totalaggXbinR1, bin==run.code)
+  
+# number of dyads correct?
+  #length(run.data$actor)
+  #check <- sum.aggXday %>% filter(date==run.code)
+  #head(check)
+  
+  data_alldyads <- merge(dyad.list, run.data, all.x=TRUE,
+                       by=c("actor", "subject")) 
+  
+  #head(data_alldyads)
+  #length(unique(data_alldyads$dyadID)) # with 21 birds should be 420 and with 22 462 dyads
+  
+  data_alldyads$bin<-run.code
+  
+ #fill newly-merged data with 0's where no interactions
+ data_alldyads[is.na(data_alldyads)] <- 0
+  
+   #print a check
+  check <- length(data_alldyads$actor)
+  print(check)
+
+# matrix  
+  mx <- reshape2::dcast(data_alldyads, actor~subject, value.var="n.aggXbin") #head(ref.behavior1.mx)
+  mx[is.na(mx)] <- 0 #for linearity measure, matrix needs to be fully filled, no NAs
+  mx <- matrix.please(mx)
+
+  # ---- aggression strategy  
+  # Compute focus & position
+  focus <- dom_focus(mx)
+  position <- dom_position(mx)
+  fp <- cbind.data.frame(focus, position)
+  colnames(fp) <- c("focus", "position")
+  
+  #Compute blur models
+  blur <- dom_make_blur_data(mx)
+  dom_plot_strategy(fp, blur) # plot aggression stategies
+  
+  #Find strategy
+  strategy <- dom_categorize_strategy(data=fp, blur_data=blur)
+  
+  # --- combine dataframe
+pool <-  cbind.data.frame(run.code, 
+                         focus, 
+                         position, 
+                         strategy) 
+
+strategies <- rbind(pool, strategies)
+
+}
+
+end.time <- Sys.time()
+
+#Time to run:
+end.time - start.time
+
+
+```
+
+```{r change each time}
+
+#strategies_21birds <- strategies
+#strategies_removal1 <- strategies
+
+strategies2020 <- bind_rows(strategies_21birds, 
+                            strategies_removal1)
+strategies2020 <- strategies2020 %>%
+  rename(bin=run.code) %>%
+  arrange(bin) %>%
+  mutate(dominance_pattern= if_else(strategy=="downward.heuristic", "downward heuristic","bullying") ) %>%
+  dplyr::select(-strategy)
+                                            
+
+
+```
+
+
+
+
+## Fig 1b) dominance patterns
+strategies take long to run, so import from file
+
+```{r plot patterns over time}
+strategies <- read.csv("output/summ_agg2020.csv")%>%
+  dplyr::select(bin, dominance_pattern) %>%
+  filter(bin!=4) %>%
+  add_row( bin=21, dominance_pattern="downward heuristic") %>%
+  add_row( bin=25, dominance_pattern="close competitor") %>%
+  mutate(rank = if_else(dominance_pattern=="downward heuristic", 1, 
+                        ifelse(dominance_pattern=="bullying", 2, 3))) %>% 
+  mutate(use = if_else(dominance_pattern=="downward heuristic", "A", 
+                        ifelse(dominance_pattern=="bullying", "B", "C"))) %>% 
+  mutate(observed_pattern = factor(dominance_pattern, 
+            levels =c("bullying", "close competitor","downward heuristic"),
+            labels =c("Bullying", "Close competitor","Downward heuristic")))
+
+
+# dominance patterns long perturbation period
+plot_strategies_2020 <- ggplot(strategies, 
+                               aes(bin, observed_pattern)) +
+  geom_point(size = 6, shape = 21, colour = "black", aes(fill = observed_pattern )) +
+  labs(title = "", y="", x="social dominance pattern assessment periods") + #title = "social dominance pattern"
+  scale_fill_manual(values = c( "#0000FF","#C00000" , "#7F7F7F")) +
+  theme_classic() + #theme_minimal() 
+  theme(#axis.title = element_text(size=12, angle = 45), #element_blank()
+        #axis.text.y =element_text(size=12, angle = 25), 
+        legend.position = "none",
+         text = element_text(size =14),
+        axis.text = element_text(size=12),
+        plot.margin = unit(c(1, 1, 0.5, 1), "cm")) +
+  
+  scale_x_continuous(limits = c(1, 3),
+                     breaks= c(1,2,3)) +
+  
+  # add lines to highlight removals and reintroductions
+ # geom_vline(xintercept = 1.5, linetype="solid", color =  alpha("black", 0.6)) + # nonsocial perturbation
+  geom_vline(xintercept = 3.5, linetype="dashed", color =  alpha("black", 0.6))  # removal
+
+
+plot_strategies_2020
+
+```
+
+# Plot 2020 data
+```{r}
+
+  ggarrange(plot_aggression_control2020 , plot_strategies_2020, 
+            nrow=2, ncol=1, align = "hv",
+            labels = c("(a)", "(b)")
+            ) # legend = "bottom", label.x = 0.15, label.y=0.85
+
+  ggsave("./figures/plot_Fig2020_narrow.pdf", width= 100, height=125, units="mm")
+         #width= 7, height=7, units="in") # full page  width= 7, height=11, units="in") # half page width= 125, height=250, units="mm"
+```
+
+write aggression summary
+```{r}
+agg_summ20 <- strategies2020 %>%
+  left_join(summ_ag_all) %>%
+  rename(n.totalbirds=birds,
+         hours.obs=sum, 
+         mean_ag_rate=mean,
+         sd_ag_rate=sd)
+agg_summ20$focus <- round(agg_summ20$focus , digits = 2)
+agg_summ20$position <- round(agg_summ20$position , digits = 2)
+agg_summ20$hours.obs <- round(agg_summ20$hours.obs , digits = 2)
+agg_summ20$ag_bird <- round(agg_summ20$ag_bird , digits = 2)
+agg_summ20$ag_bird_obs <- round(agg_summ20$ag_bird_obs , digits = 2)
+
+write.csv(agg_summ20, "output/summ_agg2020.csv")
+
+```
+
+
+
+
+
+
