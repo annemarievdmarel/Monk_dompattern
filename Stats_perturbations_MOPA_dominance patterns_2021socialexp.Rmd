@@ -67,9 +67,9 @@ unique(behave_raw$date)
 unique(behave_raw$actor)
 unique(behave_raw$subject)
 
-checkbehave <- anti_join( behave_agg, behave_bin)
-unique(behave_bin$date)
-unique(behave_agg$date)
+#checkbehave <- anti_join( behave_agg, behave_bin)
+#unique(behave_bin$date)
+#unique(behave_agg$date)
 
 
 # period file
@@ -108,8 +108,8 @@ dyad.totalaggXbin.21exp <-read.csv("./output/dyad.aggXbin.socialexp21.csv") %>%
               group_by(bin) %>%
               slice_tail() %>%
               ungroup(), by = "rank_assessment") 
-sort(unique(dyad.totalaggXbin$bin))
-sum(dyad.totalaggXbin$n.aggXbin)
+sort(unique(dyad.totalaggXbin.21exp$bin))
+sum(dyad.totalaggXbin.21exp$n.aggXbin)
 
 
 
@@ -360,7 +360,7 @@ dyad.totalaggXbin.2021socialexp <- dyad.totalaggXbin
 ```{r sum total aggression}
 ## Summarize displacements & crowds combined --> total aggression
 
-dyad.totalaggXbin <- dyad.totalaggXbin.2021socialexp
+dyad.totalaggXbin <- dyad.totalaggXbin.21exp
 
 #head(dyad.totalaggXbin) # crowds and displacement combined from the start, which is more conservative
 str(dyad.totalaggXbin)
@@ -813,8 +813,8 @@ glimpse(hours_obs_raw)
 hours_obs_raw$breaks[hours_obs_raw$breaks=="break"] <- "lunch"
 
 ## lubridate: hm(..., quiet = FALSE, roll = FALSE)
-obs_hours$start <-  hm(obs_hours$start)
-obs_hours$end <-  hm(obs_hours$end)
+# obs_hours$start <-  hm(obs_hours$start)
+# obs_hours$end <-  hm(obs_hours$end)
 
 ## total observation hours
 hoursobs <- hours_obs_raw %>%
@@ -896,16 +896,23 @@ summ_ag_21exp <-summ_ag_21exp %>%
   mutate(ag_bird= n.agg/n_birds, 
          ag_obs= n.agg/n_birds/hours_obs, 
          ag_person_obs = n.agg/n_birds/person_hours, 
-         mean = mean(ag_person_obs),
-         sd = sd(ag_person_obs),
+         mean = mean(ag_obs),
+         sd = sd(ag_obs),
          n=n(),
          se=sd/sqrt(n))
 
-ave.ag.rate <- mean(summ_ag_21exp $ag_person_obs, na.rm = T)
-sd.ag.rate <- sd(summ_ag_21exp $ag_person_obs, na.rm = T)
+ave.ag.rate <- mean(summ_ag_21exp$ag_obs, na.rm = T)
+sd.ag.rate <- sd(summ_ag_21exp$ag_obs, na.rm = T)
 
-min(summ_ag_21exp $ag_person_obs, na.rm = T)
-max(summ_ag_21exp $ag_person_obs, na.rm = T)
+min(summ_ag_21exp$ag_obs, na.rm = T)
+max(summ_ag_21exp$ag_obs, na.rm = T)
+
+# person hours
+# ave.ag.rate <- mean(summ_ag_21exp $ag_person_obs, na.rm = T)
+# sd.ag.rate <- sd(summ_ag_21exp $ag_person_obs, na.rm = T)
+# 
+# min(summ_ag_21exp $ag_person_obs, na.rm = T)
+# max(summ_ag_21exp $ag_person_obs, na.rm = T)
 ```
 
 ### plot aggression rate
@@ -915,11 +922,11 @@ plot_controlaggression_21exp <-  ggplot(summ_ag_21exp, aes(x = bin)) +
   # add average rate of aggression
   geom_hline(yintercept = ave.ag.rate, color = alpha("grey", 0.6), size=2) +
   
-  # aggression / bird / person hours observed
-  geom_line(aes(y=ag_person_obs), size=1) + 
-  geom_point(aes(y=ag_person_obs), size=3) +
+  # aggression / bird / hours observed
+  geom_line(aes(y=ag_obs), size=1) + 
+  geom_point(aes(y=ag_obs), size=3) +
   
-  scale_y_continuous(limits=c(0.0, 2.0)) +
+  scale_y_continuous(limits=c(0.0, 6.0)) +
   scale_x_continuous(limits = c(11, 22),
                      breaks= c(11:22)) +
   
@@ -994,7 +1001,7 @@ plot_strategies_21exp
             labels = c("(a)", "(b)")
             ) # legend = "bottom", label.x = 0.15, label.y=0.85
 
-  ggsave("./figures/plot_Fig2021_exp_v2.pdf",  width= 175, height=125, units="mm")
+  ggsave("./figures/plot_Fig2021_exp_v3.pdf",  width= 175, height=125, units="mm")
         # width= 7, height=7, units="in") # full page  width= 7, height=11, units="in") # half page width= 125, height=250, units="mm"
 ```
 

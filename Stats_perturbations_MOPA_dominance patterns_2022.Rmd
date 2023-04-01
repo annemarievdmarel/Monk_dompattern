@@ -39,7 +39,6 @@ library(tidyverse)
 library(reshape2)
 library(stringr)
 library(purrr)
-library(domstruc) #install_github("danm0nster/domstruc")
 library(ggraph)
 library(diagram)
 library(ggpubr)
@@ -50,6 +49,7 @@ library(vegan)
 library(lubridate)
 library(DescTools)
 library(samplesizeCMH)
+library(domstruc) #install_github("danm0nster/domstruc")
 ```
 
 # Import raw data
@@ -109,9 +109,9 @@ change for each perturbation as different birds are removed
 # bird list
 birdIDs_capture<- read.csv("./data/2022_experimental birds.csv") 
 
-birdIDs_capture %>%
-  group_by(date) %>%
-  tally() # 21 birds
+# birdIDs_capture %>%
+#   group_by(date) %>%
+#   tally() # 21 birds
 
 birdIDs <- birdIDs_capture %>% 
   dplyr::select(experimental_group_2022, band_id_2022, mark_id_2022) %>%
@@ -123,7 +123,7 @@ birdIDs <- birdIDs_capture %>%
 
 # birds used in 2021 
 birds21 <-  read.csv("./data/2021_birdIDs.csv") 
-birds21v <- birds21 %>%
+birds21 <- birds21 %>%
   filter(mark_id1!="") %>%
   select(band_id) %>%
   rename(bandID=band_id)
@@ -136,7 +136,7 @@ total_experimental_birds <- 21 + 22 + 8
 ##list of all valid color combinations
 
 # change each time
-bird.list <- sort(unique(birdIDs$tagID)) # change for social period
+bird.list <- sort(unique(birdIDs$bandID)) # change for social period
 length(bird.list)
 bird.list
 
@@ -402,6 +402,8 @@ obs_hours[636,8] <- "16:47"
 
 ```
 
+
+
 Total hours is calculated without breaks as observations continued. Calculate for total hours per bin
 
 ```{r observation hours X bin X group}
@@ -414,14 +416,15 @@ obs_hours1 <- obs_hours %>%
          date!="2022-01-23")
 
 ## lubridate: hm(..., quiet = FALSE, roll = FALSE)
-obs_hours1$start <-  hm(obs_hours1$start)
-obs_hours1$end <-  hm(obs_hours1$end)
+obs_hours1$start <-  lubridate::hm(obs_hours1$start)
+obs_hours1$end <-  lubridate::hm(obs_hours1$end)
 
 ## total observation hours
 hoursobs1 <- obs_hours1 %>%
   left_join(bin_dates %>%
               filter(bin<27), by="date") %>%
-  mutate(totaltime=as.duration(end-start), # calculate total time
+  filter(!end %in% c("na", "")) %>%
+  mutate(totaltime=lubridate::as.duration(end-start), # calculate total time
          totaltime_min=as.numeric(end - start, units="mins"),
          totaltime_hour=as.numeric(end - start, units="hours")) %>%
   filter(type=="observations", bin!="NA") %>%
@@ -439,6 +442,7 @@ sumhoursobs1 <- hoursobs1 %>%
 
 
 
+
 ```
 
 Person hours (remove breaks and multiply observation hours by the number of observers)
@@ -448,7 +452,7 @@ Person hours (remove breaks and multiply observation hours by the number of obse
 totalobs1 <- obs_hours1 %>%
   left_join(bin_dates %>%
               filter(bin<27), by="date") %>%
-  mutate(totaltime=as.duration(end-start), # calculate total time
+  mutate(totaltime=lubridate::as.duration(end-start), # calculate total time
          totaltime_min=as.numeric(end - start, units="mins"),
          totaltime_hour=as.numeric(end - start, units="hours")) %>%
   filter(type=="observations", bin!="NA") %>%
@@ -460,7 +464,7 @@ totalobs1 <- obs_hours1 %>%
 observers <-  obs_hours1 %>%
   left_join(bin_dates %>%
               filter(bin<27), by="date") %>%
-  mutate(totaltime=as.duration(end-start), # calculate total time
+  mutate(totaltime=lubridate::as.duration(end-start), # calculate total time
          totaltime_min=as.numeric(end - start, units="mins"),
          totaltime_hour=as.numeric(end - start, units="hours")) %>%
   group_by(bin, date) %>% 
@@ -470,10 +474,18 @@ observers <-  obs_hours1 %>%
 observers$observers[observers$observers==3] <- 2 # we trained field techs
 
 # breaks by day
+
+fieldtechs <- c("DM", "NL")
+trainingdates <- c("2022-02-01","2022-02-02", "2022-02-04",
+                  "2022-02-05", "2022-02-06", "2022-02-07", "2022-02-08", 
+                  "2022-02-09", "2022-02-12",  "2022-02-13","2022-02-14",
+                  "2022-02-15", "2022-02-16",  "2022-02-17","2022-02-18",
+                  "2022-02-21", "2022-02-22", "2022-02-23")
+
 breaks <- obs_hours1 %>%
    left_join(bin_dates %>%
               filter(bin<27), by="date") %>%
-  mutate(totaltime=as.duration(end-start), # calculate total time
+  mutate(totaltime=lubridate::as.duration(end-start), # calculate total time
          totaltime_min=as.numeric(end - start, units="mins"),
          totaltime_hour=as.numeric(end - start, units="hours")) %>%
   filter(type=="break", bin!="NA") %>%
@@ -482,12 +494,6 @@ breaks <- obs_hours1 %>%
   mutate(exclude = if_else(observer %in% fieldtechs & date %in% trainingdates, "yes", "no")) %>%
   filter(exclude=="no")
 
-fieldtechs <- c("DM", "NL")
-trainingdates <- c("2022-02-01","2022-02-02", "2022-02-04",
-                  "2022-02-05", "2022-02-06", "2022-02-07", "2022-02-08", 
-                  "2022-02-09", "2022-02-12",  "2022-02-13","2022-02-14",
-                  "2022-02-15", "2022-02-16",  "2022-02-17","2022-02-18",
-                  "2022-02-21", "2022-02-22", "2022-02-23")
 
 
 # some end times are missing ; fill with average break time
@@ -553,12 +559,13 @@ summ_ag_group1 <- sum.aggDCXbin_2022 %>%
 
 ave.ag.rate <- mean(summ_ag_group1$ag_bird_obs)
 sd.ag.rate <- sd(summ_ag_group1$ag_bird_obs)
+min(summ_ag_group1$ag_bird_obs)
+max(summ_ag_group1$ag_bird_obs)
 
-ave.ag.rate <- mean(summ_ag_group1$ag_person_obs)
-sd.ag.rate <- sd(summ_ag_group1$ag_person_obs)
-
-min(summ_ag_group1$ag_person_obs)
-max(summ_ag_group1$ag_person_obs)
+# ave.ag.rate <- mean(summ_ag_group1$ag_person_obs)
+# sd.ag.rate <- sd(summ_ag_group1$ag_person_obs)
+# min(summ_ag_group1$ag_person_obs)
+# max(summ_ag_group1$ag_person_obs)
 
 ```
 
@@ -572,11 +579,11 @@ plot_aggression_22group1 <-  summ_ag_group1 %>%
  # add average rate of aggression
   geom_hline(yintercept = ave.ag.rate, color = alpha("grey", 0.6), size=2) +
   
-  # aggression / bird / person hours observed
-  geom_line(aes(y=ag_person_obs), size=1) + 
-  geom_point(aes(y=ag_person_obs), size=3) +
+  # aggression / bird / hours observed
+  geom_line(aes(y=ag_bird_obs), size=1) + 
+  geom_point(aes(y=ag_bird_obs), size=3) +
   
-  scale_y_continuous(limits=c(0.0, 12.5)) +
+  scale_y_continuous(limits=c(0.0, 20.5)) +
   scale_x_continuous(limits = c(1, 26), # change to 4 with removal period included
                      breaks= c(1:26)) +
   
@@ -645,14 +652,14 @@ obs_hours2 <- obs_hours %>%
          blind %in% c("east_in", "east_out"))
 
 ## lubridate: hm(..., quiet = FALSE, roll = FALSE)
-obs_hours2$start <-  hm(obs_hours2$start)
-obs_hours2$end <-  hm(obs_hours2$end)
+obs_hours2$start <-  lubridate::hm(obs_hours2$start)
+obs_hours2$end <-  lubridate::hm(obs_hours2$end)
 
 ## total observation hours
 hoursobs2 <- obs_hours2 %>%
   left_join(bin_dates %>%
               filter(bin<27), by="date") %>%
-  mutate(totaltime=as.duration(end-start), # calculate total time
+  mutate(totaltime=lubridate::as.duration(end-start), # calculate total time
          totaltime_min=as.numeric(end - start, units="mins"),
          totaltime_hour=as.numeric(end - start, units="hours")) %>%
   filter(type=="observations", bin!="NA") %>%
@@ -677,7 +684,7 @@ Person hours (remove breaks and multiply observation hours by the number of obse
 totalobs2 <- obs_hours2 %>%
   left_join(bin_dates %>%
               filter(bin<27), by="date") %>%
-  mutate(totaltime=as.duration(end-start), # calculate total time
+  mutate(totaltime=lubridate::as.duration(end-start), # calculate total time
          totaltime_min=as.numeric(end - start, units="mins"),
          totaltime_hour=as.numeric(end - start, units="hours")) %>%
   filter(type=="observations", bin!="NA") %>%
@@ -689,7 +696,7 @@ totalobs2 <- obs_hours2 %>%
 observers <-  obs_hours2 %>%
   left_join(bin_dates %>%
               filter(bin<27), by="date") %>%
-  mutate(totaltime=as.duration(end-start), # calculate total time
+  mutate(totaltime=lubridate::as.duration(end-start), # calculate total time
          totaltime_min=as.numeric(end - start, units="mins"),
          totaltime_hour=as.numeric(end - start, units="hours")) %>%
   group_by(bin, date) %>% 
@@ -703,7 +710,7 @@ observers$observers[observers$observers==4] <- 2
 breaks <- obs_hours2 %>%
    left_join(bin_dates %>%
               filter(bin<27), by="date") %>%
-  mutate(totaltime=as.duration(end-start), # calculate total time
+  mutate(totaltime=lubridate::as.duration(end-start), # calculate total time
          totaltime_min=as.numeric(end - start, units="mins"),
          totaltime_hour=as.numeric(end - start, units="hours")) %>%
   filter(type=="break", bin!="NA") %>%
@@ -788,12 +795,14 @@ summ_ag_group2 <- sum.aggDCXbin_2022 %>%
 
 ave.ag.rate <- mean(summ_ag_group2$ag_bird_obs)
 sd.ag.rate <- sd(summ_ag_group2$ag_bird_obs)
+min(summ_ag_group2$ag_bird_obs)
+max(summ_ag_group2$ag_bird_obs)
 
-ave.ag.rate <- mean(summ_ag_group2$ag_person_obs)
-sd.ag.rate <- sd(summ_ag_group2$ag_person_obs)
 
-min(summ_ag_group2$ag_person_obs)
-max(summ_ag_group2$ag_person_obs)
+# ave.ag.rate <- mean(summ_ag_group2$ag_person_obs)
+# sd.ag.rate <- sd(summ_ag_group2$ag_person_obs)
+# min(summ_ag_group2$ag_person_obs)
+# max(summ_ag_group2$ag_person_obs)
 ```
 
 #### plot aggression rate
@@ -806,11 +815,11 @@ plot_aggression_22group2 <-  summ_ag_group2 %>%
  # add average rate of aggression
   geom_hline(yintercept = ave.ag.rate, color = alpha("grey", 0.6), size=2) +
   
-  # aggression / bird / person hours observed
-  geom_line(aes(y=ag_person_obs), size=1) + 
-  geom_point(aes(y=ag_person_obs), size=3) +
+  # aggression / bird / hours observed
+  geom_line(aes(y=ag_bird_obs), size=1) + 
+  geom_point(aes(y=ag_bird_obs), size=3) +
   
-  scale_y_continuous(limits=c(0, 12.5)) +
+  scale_y_continuous(limits=c(0, 20.5)) +
   scale_x_continuous(limits = c(1, 26), # change to 4 with removal period included
                      breaks= c(1:26)) +
   
@@ -957,7 +966,7 @@ Figure: aggression rate and dominance patterns for group 1
             labels = c("(a)", "(b)")
             ) # legend = "bottom", label.x = 0.15, label.y=0.85
 
-  ggsave("./figures/plot_Fig2022_group1.pdf", width= 250, height=125, units="mm")
+  ggsave("./figures/plot_Fig2022_group1_obshours.pdf", width= 250, height=125, units="mm")
          #width= 7, height=7, units="in") # full page  width= 7, height=11, units="in") # half page width= 125, height=250, units="mm"
 ```
 
@@ -970,7 +979,7 @@ Figure: aggression rate and dominance patterns for group 2
             labels = c("(a)", "(b)")
             ) # legend = "bottom", label.x = 0.15, label.y=0.85
 
-  ggsave("./figures/plot_Fig2022_group2.pdf", width= 250, height=125, units="mm")
+  ggsave("./figures/plot_Fig2022_group2_obshours.pdf", width= 250, height=125, units="mm")
          #width= 7, height=7, units="in") # full page  width= 7, height=11, units="in") # half page width= 125, height=250, units="mm"
 ```
 
@@ -983,7 +992,7 @@ or both groups in 1 figure
             labels = c("(ai)","(aii)", "(bi)","(bii)")
             ) # legend = "bottom", label.x = 0.15, label.y=0.85
 
-  ggsave("./figures/plot_Fig2022.pdf", width= 250, height=250, units="mm")
+  ggsave("./figures/plot_Fig2022_obshours.pdf", width= 250, height=250, units="mm")
 ```
 
 write aggression summary

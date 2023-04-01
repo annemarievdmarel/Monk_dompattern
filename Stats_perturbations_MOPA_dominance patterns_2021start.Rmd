@@ -256,8 +256,8 @@ unique(behave_agg$date)
 # filter displacement & crowd data from period prior to social perturbations ()
 aggDC <- behave_agg %>% 
   filter(behavior=="displace" | behavior=="crowd", 
-         bin %in% c(7, 8,9,10) # c(7, 8,9,10) = 20 birds
-         #bin<7   # bin<7 = 22 birds, 
+         bin %in% c(7, 8,9,10)   # bin %in% c(7, 8,9,10) = 20 birds
+         # bin<7 = 22 birds, 
          ) %>%
   dplyr::select(orderkey,  sessionKEY, type, bin, date, time, actor, subject, behavior)
 
@@ -307,7 +307,8 @@ combine datasets with 22 birds (bin<7) and 20 birds (bin 7:10)
 
 dyad.totalaggXbin <- bind_rows(dyad.totalaggXbin_22birds,
                                dyad.totalaggXbin_20birds)
-write.csv(dyad.totalaggXbin, "./output/dyad.aggXbin.start21.csv")
+#write.csv(dyad.totalaggXbin, "./output/dyad.aggXbin.start21.csv")
+
 ```
 
 
@@ -336,7 +337,6 @@ sum.aggDCXbin_start21 <-dyad.totalaggXbin %>%
             n.dyads=length(actor), 
             n.actors=n_distinct(actor),
             n.subjects=n_distinct(subject))
-#head(sum.aggDCXbin_conservative)
 sum.aggDCXbin_start21
 
 n.aggDC.start21 <- sum(sum.aggDCXbin_start21$n.agg)
@@ -808,16 +808,16 @@ obs.hours <- hoursobs %>%
 
 
 # total aggression
-glimpse(sum.aggDCXbin_conservative)
+glimpse(sum.aggDCXbin_start21)
 
 # mean total of agonistic events observed per bin
-summ_agXbin <- sum.aggDCXbin_conservative %>%
+summ_agXbin <- sum.aggDCXbin_start21 %>%
   summarize(mean_ag =mean(n.agg),
             sd_ag = sd(n.agg))
 
 # mean and SD value
 bin_start_dates$n_birds <- as.integer(bin_start_dates$n_birds )
-summ_ag_21start <- sum.aggDCXbin_conservative %>%
+summ_ag_21start <- sum.aggDCXbin_start21 %>%
   left_join(bin_start_dates %>%
               group_by(bin) %>%
               slice_head()) %>%
@@ -825,19 +825,21 @@ summ_ag_21start <- sum.aggDCXbin_conservative %>%
   mutate(ag_bird= n.agg/n_birds, 
          ag_bird_obs= n.agg/n_birds/hours_obs, 
          ag_person_obs = n.agg/n_birds/person_hours, 
-         mean = mean(ag_person_obs),
-         sd = sd(ag_person_obs),
+         mean = mean(ag_bird_obs),
+         sd = sd(ag_bird_obs),
          n=n(),
          se=sd/sqrt(n))
 
 ave.ag.rate <- mean(summ_ag_21start$ag_bird_obs)
 sd.ag.rate <- sd(summ_ag_21start$ag_bird_obs)
+min(summ_ag_21start$ag_bird_obs)
+max(summ_ag_21start$ag_bird_obs)
 
-ave.ag.rate <- mean(summ_ag_21start$ag_person_obs)
-sd.ag.rate <- sd(summ_ag_21start$ag_person_obs)
-
-min(summ_ag_21start$ag_person_obs)
-max(summ_ag_21start$ag_person_obs)
+# ave.ag.rate <- mean(summ_ag_21start$ag_person_obs)
+# sd.ag.rate <- sd(summ_ag_21start$ag_person_obs)
+# 
+# min(summ_ag_21start$ag_person_obs)
+# max(summ_ag_21start$ag_person_obs)
 ```
 
 #### plot aggression rate
@@ -850,11 +852,12 @@ plot_controlaggression_21start<-  summ_ag_21start %>%
   # add average rate of aggression
   geom_hline(yintercept = ave.ag.rate, color = alpha("grey", 0.6), size=2) +
   
-  # aggression controlled for group size and person hours observed
-  geom_line(aes(y=ag_person_obs), size=1) + 
-  geom_point(aes(y=ag_person_obs), size=3) +
+  # aggression controlled for group size and hours observed
+  geom_line(aes(y=ag_bird_obs), size=1) + 
+  geom_point(aes(y=ag_bird_obs), size=3) +
   
-  scale_y_continuous(limits=c(0, 2)) +
+  scale_y_continuous(limits=c(0, 5.5),
+                     breaks= c(1:5)) +
   scale_x_continuous(limits = c(1, 10), 
                      breaks= c(1:10)) +
   
@@ -879,7 +882,7 @@ plot_controlaggression_21start
 strategies take long to run, so import from file
 
 ```{r plot patterns over time}
-strategies <- read.csv("output/summ_agg2021.csv")
+strategies2021 <- read.csv("output/summ_agg2021.csv")
 strategies <- strategies2021 %>%
   dplyr::select(bin, dominance_pattern) %>%
   #filter(bin!=4) %>%
@@ -929,7 +932,7 @@ plot_strategies_summ_start21
             labels = c("(c)", "(d)")
             ) # legend = "bottom", label.x = 0.15, label.y=0.85
 
-  ggsave("./figures/plot_Fig2021_start.pdf", width= 175, height=125, units="mm")
+  ggsave("./figures/plot_Fig2021_start_hours.pdf", width= 175, height=125, units="mm")
          #width= 7, height=7, units="in") # full page  width= 7, height=11, units="in") # half page width= 125, height=250, units="mm"
 ```
 

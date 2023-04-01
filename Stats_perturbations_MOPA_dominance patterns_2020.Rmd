@@ -40,8 +40,8 @@ library(tidyverse)
 library(reshape2)
 library(stringr)
 library(purrr)
-library(domstruc) #install_github("danm0nster/domstruc")
-library(ggraph)
+library(domstruc) #xfun::install_github("danm0nster/domstruc")
+ library(ggraph)
 library(diagram)
 library(ggpubr)
 library(ggridges)
@@ -290,8 +290,8 @@ obs_hours <- obs.hours %>%
   unite(date, year, month, day, sep = "-")
 
 ## lubridate: hm(..., quiet = FALSE, roll = FALSE)
-obs_hours$start <-  hm(obs_hours$start)
-obs_hours$end <-  hm(obs_hours$end)
+obs_hours$start <-  lubridate::hm(obs_hours$start)
+obs_hours$end <-  lubridate::hm(obs_hours$end)
 
 # we are missing observation hours for the first 2 days (march 18 and 19). Get min and max time from behavioral dataframe
 obshoursday <- behave_clean %>%
@@ -300,11 +300,11 @@ obshoursday <- behave_clean %>%
   summarize(min=min(time),
             max=max(time)) 
 
-obshoursday$min <-  hm(obshoursday$min)
-obshoursday$max <-  hm(obshoursday$max)
+obshoursday$min <-  lubridate::hm(obshoursday$min)
+obshoursday$max <-  lubridate::hm(obshoursday$max)
 
 obshoursday <- obshoursday %>%
-   mutate(totaltime=as.duration(max-min), # calculate total time
+   mutate(totaltime=lubridate::as.duration(max-min), # calculate total time
          totaltime_min=as.numeric(max-min, units="mins"),
          totaltime_hour=as.numeric(max-min, units="hours")) %>%
   summarize(sum=sum(totaltime_hour))
@@ -315,7 +315,7 @@ obshoursday <- obshoursday %>%
 hoursobs <- obs_hours %>%
   left_join(bin.dates, by="date") %>%
   filter(period!="capture") %>%
-  mutate(totaltime=as.duration(end-start), # calculate total time
+  mutate(totaltime=lubridate::as.duration(end-start), # calculate total time
          totaltime_min=as.numeric(end - start, units="mins"),
          totaltime_hour=as.numeric(end - start, units="hours")) %>%
   filter(name=="observations") %>%
@@ -350,7 +350,7 @@ Person hours  (remove breaks and multiply observation hours by the number of obs
 personhours <- obs_hours %>%
   left_join(bin.dates, by="date") %>%
   filter(period!="capture") %>%
-  mutate(totaltime=as.duration(end-start), # calculate total time
+  mutate(totaltime=lubridate::as.duration(end-start), # calculate total time
          totaltime_min=as.numeric(end - start, units="mins"),
          totaltime_hour=as.numeric(end - start, units="hours")) %>%
   #filter(name=="observations") %>%
@@ -401,22 +401,23 @@ summ_ag_all <- sum.aggDCXbin_conservative %>%
   filter(bin!=4) %>%
   mutate(birds=n.subjects)
 summ_ag_all$birds[summ_ag_all$bin==2]<-21
-summ_ag_all <- summ_ag_all %>%
+summ_ag_all20 <- summ_ag_all %>%
   left_join(obs.hours, by="bin") %>%
   mutate(ag_bird= n.agg/birds, 
          ag_bird_obs= n.agg/birds/hours_obs, 
-         ag_person_obs = n.agg/birds/personhours, 
-         mean = mean(ag_person_obs),
-         sd = sd(ag_person_obs),
+         ag_person_obs = n.agg/birds/personhours,
+         mean = mean(ag_bird_obs),
+         sd = sd(ag_bird_obs),
          n = n(),
          se=sd/sqrt(n))
 
-ave.ag.rate <- mean(summ_ag_all$ag_bird_obs)
-sd.ag.rate <- sd(summ_ag_all$ag_bird_obs)
+# overall agression rate /hours (mean +- SE)
+ave.ag.rate <- mean(summ_ag_all20$ag_bird_obs)
+sd.ag.rate <- sd(summ_ag_all20$ag_bird_obs)
 
 # overall agression rate /person hours (mean +- SE)
-ave.ag.rate <- mean(summ_ag_all$ag_person_obs)
-sd.ag.rate <- sd(summ_ag_all$ag_person_obs)
+# ave.ag.rate <- mean(summ_ag_all$ag_person_obs)
+# sd.ag.rate <- sd(summ_ag_all$ag_person_obs)
 
 
   
@@ -426,7 +427,7 @@ sd.ag.rate <- sd(summ_ag_all$ag_person_obs)
 
 #### plot aggression rate
 
-```{r}
+```{r rate = n/personhours/groupsize}
 plot_aggression_control2020 <-  summ_ag_all %>%
   filter(bin!=4) %>%
   ggplot( aes(x = bin)) +
@@ -459,7 +460,38 @@ plot_aggression_control2020 <-  summ_ag_all %>%
 plot_aggression_control2020
 ```
 
-
+```{r rate = n/hours/groupsize}
+plot_aggression_control2020_hours <-  summ_ag_all20 %>%
+  filter(bin!=4) %>%
+  ggplot( aes(x = bin)) +
+  
+ # add average rate of aggression
+  geom_hline(yintercept = ave.ag.rate, color = alpha("grey", 0.6), size=2) +
+  
+  # aggression / bird / hours observed
+  geom_line(aes(y=ag_bird_obs), size=1) + 
+  geom_point(aes(y=ag_bird_obs), size=3) +
+  
+  scale_y_continuous(limits=c(0.0, 5.5),
+                     breaks = c(1:5)) +
+  scale_x_continuous(limits = c(1, 3), # change to 4 with removal period included
+                     breaks= c(1,2,3)) +
+  
+  theme_classic() +
+  theme(legend.position="bottom",
+         text = element_text(size=14),
+         axis.text = element_text(size=12),
+         axis.title.x = element_blank()) +
+   #     axis.text.x = element_blank(),
+    #    axis.ticks.x=element_line()) +
+  labs(y="aggression rate")  #, title = "Amount of aggression controlled for group size and hours observed"
+  
+ # geom_vline(xintercept = 1.5, linetype="solid", color =  alpha("black", 0.6)) + # nonsocial perturbation
+#  geom_vline(xintercept = 3.5, linetype="dashed", color =  alpha("black", 0.6)) + # removal of 2 birds (top-ranked and bottom-ranked injured bird)
+  
+ 
+plot_aggression_control2020_hours
+```
 
 
 # Individual dominance rank X bin 
@@ -789,12 +821,14 @@ plot_strategies_2020
 # Plot 2020 data
 ```{r}
 
-  ggarrange(plot_aggression_control2020 , plot_strategies_2020, 
+  ggarrange(plot_aggression_control2020_hours , plot_strategies_2020, 
             nrow=2, ncol=1, align = "hv",
             labels = c("(a)", "(b)")
             ) # legend = "bottom", label.x = 0.15, label.y=0.85
 
-  ggsave("./figures/plot_Fig2020_narrow.pdf", width= 100, height=125, units="mm")
+  ggsave("./figures/plot_Fig2020hours.pdf", width= 125, height=125, units="mm")
+  
+  #width= 100, height=125, units="mm")
          #width= 7, height=7, units="in") # full page  width= 7, height=11, units="in") # half page width= 125, height=250, units="mm"
 ```
 
