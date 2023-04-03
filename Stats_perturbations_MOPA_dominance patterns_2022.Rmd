@@ -552,8 +552,8 @@ summ_ag_group1 <- sum.aggDCXbin_2022 %>%
          ag_bird= n.agg/birds, 
          ag_bird_obs= n.agg/birds/hours_obs, 
          ag_person_obs = n.agg/birds/personhours, 
-         mean = mean(ag_person_obs),
-         sd = sd(ag_person_obs),
+         mean = mean(ag_bird_obs),
+         sd = sd(ag_bird_obs),
          n=n(),
          se=sd/sqrt(n))
 
@@ -788,8 +788,8 @@ summ_ag_group2 <- sum.aggDCXbin_2022 %>%
          ag_bird= n.agg/birds, 
          ag_bird_obs= n.agg/birds/hours_obs, 
          ag_person_obs = n.agg/birds/personhours, 
-         mean = mean(ag_person_obs),
-         sd = sd(ag_person_obs),
+         mean = mean(ag_bird_obs),
+         sd = sd(ag_bird_obs),
          n=n(),
          se=sd/sqrt(n))
 

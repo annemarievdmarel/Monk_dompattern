@@ -229,29 +229,6 @@ length(behave_bin$orderkey)-length(check_social$orderkey)
 #length(behave_correct$orderkey)
 ```
 
-# bird list
-
-change for each perturbation as different birds are removed
-```{r}
-##list of all valid color combinations
-# birdIDs$mark_id3 = all 20 birds
-birdIDs_removal1 <- birdIDs %>% filter(mark_id3!="BBB")
-birdIDs_removal2 <- birdIDs %>% filter(mark_id3!="GPG")
-birdIDs_removal3 <- birdIDs %>% filter(mark_id3!="OPP")
-
-# change each time
-bird.list <- sort(unique(birdIDs$mark_id3)) # change each time
-length(bird.list)
-bird.list
-
-# list of all possible dyads
-dyad.list <- expand.grid(bird.list, bird.list) #head(dyad.list)
-names(dyad.list) <- c("actor", "subject")
-dyad.list <- subset(dyad.list, actor!=subject)
-dyad.list$dyadID <- paste(dyad.list$actor, dyad.list$subject, sep="-")
-
-```
-
 
 
 # Helper functions & data
@@ -281,6 +258,29 @@ theme_new <-   theme_classic() +
          axis.title.x = element_blank())
 ```
 
+# bird list
+
+change for each perturbation as different birds are removed
+```{r}
+##list of all valid color combinations
+# birdIDs$mark_id3 = all 20 birds
+birdIDs_removal1 <- birdIDs %>% filter(mark_id3!="BBB")
+birdIDs_removal2 <- birdIDs %>% filter(mark_id3!="GPG")
+birdIDs_removal3 <- birdIDs %>% filter(mark_id3!="OPP")
+
+# change each time
+bird.list <- sort(unique(birdIDs$mark_id3)) # change each time
+length(bird.list)
+bird.list
+
+# list of all possible dyads
+dyad.list <- expand.grid(bird.list, bird.list) #head(dyad.list)
+names(dyad.list) <- c("actor", "subject")
+dyad.list <- subset(dyad.list, actor!=subject)
+dyad.list$dyadID <- paste(dyad.list$actor, dyad.list$subject, sep="-")
+
+```
+
 
 # Remove duplicates
 
@@ -303,7 +303,7 @@ behave_agg <- behave_bin %>%
 
 unique(behave_agg$behavior)
 unique(behave_agg$date)
-
+unique(behave_agg$bin)
 
 # filter displacement & crowd data from all data
 aggDC <- behave_agg %>% #behave_agg
@@ -359,6 +359,8 @@ dyad.totalaggXbin.2021socialexp <- dyad.totalaggXbin
 ### total aggression
 ```{r sum total aggression}
 ## Summarize displacements & crowds combined --> total aggression
+totalagg<- read.csv("./output/dyad.aggXbin.socialexp21.csv")
+sum(totalagg$n.aggXbin)
 
 dyad.totalaggXbin <- dyad.totalaggXbin.21exp
 

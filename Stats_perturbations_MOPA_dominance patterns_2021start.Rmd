@@ -143,46 +143,6 @@ day_sum<- behave_bin %>%
 
 ```
 
-## bird list
-change for each perturbation as different birds are removed
-
-
-```{r}
-##list of all valid color combinations
-
-# change each time
-birdIDs22 <- birdIDs_capture %>%
-  dplyr::select(mark_id) %>%
-  filter(mark_id!="") 
-
-bird.list <- sort(unique(birdIDs22$mark_id)) # change each time
-length(bird.list)
-bird.list
-
-# list of all possible dyads
-dyad.list <- expand.grid(bird.list, bird.list) #head(dyad.list)
-names(dyad.list) <- c("actor", "subject")
-dyad.list <- subset(dyad.list, actor!=subject)
-dyad.list$dyadID <- paste(dyad.list$actor, dyad.list$subject, sep="-")
-
-
-#bin 7 onward -> 20 birds 
-
-birdIDs20 <- birdIDs_capture %>%
-  dplyr::select(mark_id3) %>%
-  filter(mark_id3!="") # all 22 birds # change each time
-bird.list <- sort(unique(birdIDs20$mark_id3))
-length(bird.list)
-bird.list
-
-# list of all possible dyads
-dyad.list <- expand.grid(bird.list, bird.list) #head(dyad.list)
-names(dyad.list) <- c("actor", "subject")
-dyad.list <- subset(dyad.list, actor!=subject)
-dyad.list$dyadID <- paste(dyad.list$actor, dyad.list$subject, sep="-")
-
-```
-
 ## node attribute list
 ```{r node attributes}
 attrib_node <- birdIDs_capture %>%
@@ -231,6 +191,48 @@ matrix.please<-function(x) {
 
 ```
 
+
+## bird list
+change for each perturbation as different birds are removed
+
+```{r bird list 22 birds}
+birdIDs22 <- birdIDs_capture %>%
+  dplyr::select(mark_id) %>%
+  filter(mark_id!="") 
+
+bird.list <- sort(unique(birdIDs22$mark_id)) # change each time
+length(bird.list)
+bird.list
+
+# list of all possible dyads
+dyad.list <- expand.grid(bird.list, bird.list) #head(dyad.list)
+names(dyad.list) <- c("actor", "subject")
+dyad.list <- subset(dyad.list, actor!=subject)
+dyad.list$dyadID <- paste(dyad.list$actor, dyad.list$subject, sep="-")
+
+```
+
+
+```{r bird list 20 birds}
+
+## bin 7 onward -> 20 birds 
+
+birdIDs20 <- birdIDs_capture %>%
+  dplyr::select(mark_id3) %>%
+  filter(mark_id3!="") # all 22 birds # change each time
+bird.list <- sort(unique(birdIDs20$mark_id3))
+length(bird.list)
+bird.list
+
+# list of all possible dyads
+dyad.list <- expand.grid(bird.list, bird.list) #head(dyad.list)
+names(dyad.list) <- c("actor", "subject")
+dyad.list <- subset(dyad.list, actor!=subject)
+dyad.list$dyadID <- paste(dyad.list$actor, dyad.list$subject, sep="-")
+
+```
+
+
 # Remove duplicates
 BY bin: for start of 2021 season -> bin 1-10; social manipulation experiment started at bin 10 which is rank assessment period 0
 
@@ -256,7 +258,7 @@ unique(behave_agg$date)
 # filter displacement & crowd data from period prior to social perturbations ()
 aggDC <- behave_agg %>% 
   filter(behavior=="displace" | behavior=="crowd", 
-         bin %in% c(7, 8,9,10)   # bin %in% c(7, 8,9,10) = 20 birds
+         bin %in% c(7, 8,9,10) # bin %in% c(7, 8,9,10) = 20 birds
          # bin<7 = 22 birds, 
          ) %>%
   dplyr::select(orderkey,  sessionKEY, type, bin, date, time, actor, subject, behavior)
@@ -317,7 +319,9 @@ dyad.totalaggXbin <- bind_rows(dyad.totalaggXbin_22birds,
 ## Total aggression
 ```{r sum total aggression}
 ## Summarize displacements & crowds combined --> total aggression
-
+totalagg<- read.csv("./output/dyad.aggXbin.start21.csv")
+sum(totalagg$n.aggXbin) = sum(dyad.totalaggXbin_22birds$n.aggXbin) + sum(dyad.totalaggXbin_20birds$n.aggXbin)
+# all good
 
 str(dyad.totalaggXbin)
 
@@ -932,7 +936,7 @@ plot_strategies_summ_start21
             labels = c("(c)", "(d)")
             ) # legend = "bottom", label.x = 0.15, label.y=0.85
 
-  ggsave("./figures/plot_Fig2021_start_hours.pdf", width= 175, height=125, units="mm")
+  ggsave("./figures/plot_Fig2021_start_hoursv1.pdf", width= 175, height=125, units="mm")
          #width= 7, height=7, units="in") # full page  width= 7, height=11, units="in") # half page width= 125, height=250, units="mm"
 ```
 
