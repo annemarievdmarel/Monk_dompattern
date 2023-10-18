@@ -372,7 +372,7 @@ sum(dyad.totalaggXbin$n.aggXbin)==sum(sum.aggDCXbin_2022$n.agg)
 
 ```
 
-## Fig 4a) group 1: aggression rate controlled for person hours observed and group size
+## Fig 3ai) group 1: aggression rate controlled for person hours observed and group size
 
 #### observation hours
 
@@ -615,7 +615,7 @@ plot_aggression_22group1 <-  summ_ag_group1 %>%
 plot_aggression_22group1 
 ```
 
-## Fig 5a) group 2 aggression rate
+## Fig 3bi) group 2 aggression rate
 
 #### observation hours
 
@@ -853,7 +853,7 @@ plot_aggression_22group2
 
 ## Social dominance pattern
 
-### Fig 4b) group 1 dominance patterns
+### Fig 3aii) group 1 dominance patterns
 
 strategies take long to run, so import from file
 
@@ -904,7 +904,7 @@ plot_strategies_group1
 
 ```
 
-### Fig 5b) group 2 dominance patterns
+### Fig 3bii) group 2 dominance patterns
 
 strategies take long to run, so import from file
 
@@ -1038,7 +1038,7 @@ dompatterns <- dompattern22 %>%
 
 # observed pattern change
 
-obs_pattern_change <- dompatterns %>%
+obs_pattern_change <- dompattern22 %>%
   dplyr::select(group, bin, focalrank, obspattern) %>% #group, 
   group_by(focalrank) %>% #group_by(group) 
   #filter(!bin %in% c(25)) %>%
@@ -1252,16 +1252,17 @@ glimpse(before_after)
 
 
 
-## Transition proportion X focal rank
+## Fig. 4) Transition proportion X focal rank
 
 separate by focal vs control
 
-#### observed
-
-##### top-ranked observed
+### top-ranked observed
 
 ```{r}
-## observed   {update}
+## observed   
+
+binperturbations <- c(2,4,6,8,10,12,14,16, 18,20, 22,24)
+
 obs_top <- obs_pattern_change %>%
   filter(bin %in% binperturbations, focalrank=="top-ranked") %>%
   group_by(focalrank,before, after, change) %>%
@@ -1273,23 +1274,23 @@ obs_top$before<- factor(obs_top$before,
 obs_top$after<- factor(obs_top$after, 
                                 levels=c( "B" , "CC","DH"))
 
-
-mx <- reshape2::dcast(obs_top, before~after, value.var="prop") 
+# in plotmat rows=to, cols=from
+mx <- reshape2::dcast(obs_top, after~before, value.var="prop") 
 obs.top.mx <- matrix.please(mx)
 obs.top.mx[is.na(obs.top.mx)] <- 0
 
 # set line width
 linewidth <- matrix(nrow=3,
                     ncol=3,0)
-linewidth[1,1]<- (obs.mx[1,1]*10)+1      
-linewidth[1,2]<- (obs.mx[1,2]*10) 
-linewidth[1,3]<- (obs.mx[1,3]*10)+1 
-linewidth[2,2]<- (obs.mx[2,2]*10)+1  
-linewidth[2,1]<- (obs.mx[2,1]*10)+1
-linewidth[2,3]<- (obs.mx[2,3]*10)+1  
-linewidth[3,1]<- (obs.mx[3,1]*10)+1       
-linewidth[3,2]<- (obs.mx[3,2]*10) 
-linewidth[3,3]<- (obs.mx[3,3]*10)+1 
+linewidth[1,1]<- (obs.top.mx[1,1]*10)+1      
+linewidth[1,2]<- (obs.top.mx[1,2]*10) 
+linewidth[1,3]<- (obs.top.mx[1,3]*10)+1 
+linewidth[2,2]<- (obs.top.mx[2,2]*10)+1  
+linewidth[2,1]<- (obs.top.mx[2,1]*10)+1
+linewidth[2,3]<- (obs.top.mx[2,3]*10)+1  
+linewidth[3,1]<- (obs.top.mx[3,1]*10)+1       
+linewidth[3,2]<- (obs.top.mx[3,2]*10) 
+linewidth[3,3]<- (obs.top.mx[3,3]*10)+1 
 
 
 
@@ -1328,9 +1329,9 @@ dev.off() # Close the pdf file
 
 ```
 
-NB! arrows are going in the wrong direction when compared to the matrix and boxes do not correpsond to the right patterns
 
-##### control observed
+
+### middle/low-ranked observed
 
 ```{r}
 ## observed 
@@ -1348,23 +1349,23 @@ obs_ml$before <- factor(obs_ml$before,
 obs_ml$after <- factor(obs_ml$after, 
                   #levels=c("bullying", "close competitor", "downward heuristic"), 
                                 levels=c( "B" , "CC","DH"))
-# create matrix
-mx <- reshape2::dcast(obs_ml, before~after, value.var="prop") 
+# create matrix in plotmat rows=to, cols=from, so after~before
+mx <- reshape2::dcast(obs_ml, after~before, value.var="prop") 
 obs.ml.mx <- matrix.please(mx)
 obs.ml.mx[is.na(obs.ml.mx)] <- 0
 
 # set line width
 linewidth <- matrix(nrow=3,
                     ncol=3,0)
-linewidth[1,1]<- (obs.mx[1,1]*10)+1      
-linewidth[1,2]<- (obs.mx[1,2]*10) 
-linewidth[1,3]<- (obs.mx[1,3]*10)+1 
-linewidth[2,2]<- (obs.mx[2,2]*10)+1  
-linewidth[2,1]<- (obs.mx[2,1]*10)
-linewidth[2,3]<- (obs.mx[2,3]*10)+1  
-linewidth[3,1]<- (obs.mx[3,1]*10)      
-linewidth[3,2]<- (obs.mx[3,2]*10)
-linewidth[3,3]<- (obs.mx[3,3]*10)+1 
+linewidth[1,1]<- (obs.ml.mx[1,1]*10)+1      
+linewidth[1,2]<- (obs.ml.mx[1,2]*10) 
+linewidth[1,3]<- (obs.ml.mx[1,3]*10)+1 
+linewidth[2,2]<- (obs.ml.mx[2,2]*10)+1  
+linewidth[2,1]<- (obs.ml.mx[2,1]*10)
+linewidth[2,3]<- (obs.ml.mx[2,3]*10)+1  
+linewidth[3,1]<- (obs.ml.mx[3,1]*10)      
+linewidth[3,2]<- (obs.ml.mx[3,2]*10)
+linewidth[3,3]<- (obs.ml.mx[3,3]*10)+1 
 
 
 
@@ -1434,6 +1435,7 @@ Table = xtabs(total ~  same + focalrank ,  #+ perturbation
 ftable(Table)
 chisq.test(Table)
 
+fisher.test(Table)
 
 ```
 The number of dominance pattern shifts are not different when a top-ranked bird or a middle/low-ranked bird is perturbed (chi-square test; X = 1.5, p = 0.22). 
@@ -1835,6 +1837,8 @@ plot_removal_bar
 ## Transition proportion by trial X focalrank X perturbation type
 
 separate by focal vs control
+
+Supplemental Info 3
 
 #### removal
 
