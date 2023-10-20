@@ -1425,6 +1425,7 @@ obs_change<- bind_rows(obs_pattern_change_removal , obs_pattern_change_reintro) 
 
 pattern_shifts <- obs_pattern_change_perturbations %>%
   group_by( focalrank, same) %>% #perturbation,
+  filter(same=="no") %>%
   summarize(total=sum(obs_n)) 
 
 Table = xtabs(total ~  same + focalrank ,  #+ perturbation

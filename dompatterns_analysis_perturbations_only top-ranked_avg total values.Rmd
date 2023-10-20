@@ -1,0 +1,1377 @@
+---
+title: "dompattern by perturbation type"
+author: "Annemarie van der Marel"
+date: "2022-12-23"
+output: html_document
+---
+
+We disentangle the effect of the different perturbation types, i.e., removals and reintroductions, on dominance pattern dynamics for all the social manipulation trials together (n = 15 trials) but here n=9 trials of only the top-ranked trials.  
+2021: 3 top-ranked trials
+2022: 2*3 top-ranked = 6
+2022: 2*3 middle/low-ranked trials = 6
+
+We randomized the order of the dominance patterns across all trials for 1000 iterations per group. We then create a reference model of the transition of the dominance pattern before vs after removal and before vs after reintroduction. 
+
+# load library
+```{r echo=FALSE}
+library(tidyverse)
+library(diagram)
+library(ggridges)
+```
+
+
+
+# import data
+```{r }
+dompattern21 <-  read.csv("output/dompatterns_21exp.csv") %>%
+  rename(group=year,
+         dompattern=dominance_pattern) %>%
+  mutate(focalrank="top-ranked",
+         obspattern = factor(dompattern, 
+            levels =c("bullying", "close competitor","downward heuristic"),
+            labels =c("B", "CC","DH"))) %>%
+  dplyr::select(-X)
+  # mutate(observed_pattern = factor(dominance_pattern, 
+  #                            levels =c(  "bullying", "close competitor","downward heuristic")),
+          #unique(dominance_pattern))
+
+dompattern22 <- read.csv("output/dompatterns2022.csv") 
+ #%>%
+  #filter(focalrank=="top-ranked")
+
+
+```
+## Helper functions & data
+
+```{r echo=FALSE}
+# include calibri as text font
+windowsFonts(Calibri = windowsFont("Calibri"))
+#windowsFonts()
+
+
+#make matrix function (from dataframe, 1st col with row names)
+matrix.please<-function(x) {
+  m<-as.matrix(x[,-1])
+  rownames(m)<-x[,1]
+  m
+}
+
+
+
+```
+
+# removal pattern changes
+
+## observed
+
+2021
+```{r}
+
+# observed pattern change
+obs_pattern_change <- dompattern21 %>%
+  #dplyr::select( bin,  dompattern) %>%
+  mutate(obs_after=lead(obspattern),
+         obs_pattern_change = paste(obspattern, obs_after, sep="-")) %>%   
+  rename(before=obspattern,
+         after=obs_after, 
+         change=obs_pattern_change) 
+
+## removal
+binchange_removal <- c(11, 15, 19)
+
+obs_pattern_change_removal <- obs_pattern_change %>%
+  filter(bin %in% binchange_removal) %>%
+   group_by( group, before,after,change) %>% #group_by(group) 
+  summarize(obs_n=length(change), obs_prop = obs_n/3) %>% 
+  #dplyr::select(-obs_n) %>% 
+  mutate(perturbation="removal",
+         same=if_else(before==after, "yes", "no"))
+
+
+
+```
+
+
+2022
+```{r}
+dompattern22 <- dompattern22 %>% 
+  mutate(focalrank=if_else(dompattern_focal=="middle-ranked", "middle/low", 
+                           if_else(dompattern_focal=="bottom-ranked", "middle/low", "top-ranked")),
+         obspattern = factor(dompattern, 
+            levels =c("bullying", "close competitor","downward heuristic"),
+            labels =c("B", "CC","DH"))) %>%
+   dplyr::select(-X, -dompattern_focal) 
+
+
+# observed pattern change
+
+obs_pattern_change22 <- dompattern22 %>%
+  #dplyr::select(group, bin, focalrank, obspattern) %>% #group, 
+  group_by(group) %>% #group_by(group) 
+  #filter(!bin %in% c(25)) %>%
+  mutate(obs_after=lead(obspattern),
+         obs_pattern_change = paste(obspattern, obs_after, sep="-")) %>%   
+  rename(before=obspattern,
+         after=obs_after, 
+         change=obs_pattern_change) %>%
+  filter(focalrank=="top-ranked")
+
+
+## removal
+binchange_removal22 <- c(2,6,10,14, 18, 22)
+
+obs_pattern_change_removal22 <- obs_pattern_change22 %>%
+  filter(bin %in% binchange_removal22) %>%
+  group_by(group, before,after,change) %>% #group_by(group) 
+  summarize(obs_n=length(change), obs_prop = obs_n/3) %>% 
+  #dplyr::select(-obs_n) %>% 
+  mutate(perturbation="removal",
+         same=if_else(before==after, "yes", "no"))
+
+check <- obs_pattern_change_removal22 %>% 
+  #group_by(focalrank) %>%
+  summarise(sum(obs_prop)) # should be 1
+sum(obs_pattern_change_removal$obs_n)
+
+
+
+```
+combine
+```{r}
+removal_change <- bind_rows(obs_pattern_change_removal, 
+                            obs_pattern_change_removal22) %>%
+  group_by(before, after, change) %>%
+  summarize(n=sum(obs_n), obs_prop=n/9) %>%  
+  mutate(prop=round(obs_prop, 2))
+
+sum(removal_change$n)
+sum(removal_change$obs_prop)
+```
+
+### visualise
+plotmat visualisez matrix (rows=to, cols=from))
+I have to change the direction of my matrix as I had rows=from/before and cols=to/after. 
+```{r}
+# all possible options
+patterns <- c("B", "CC", "DH")
+patternchanges <- expand.grid(patterns, patterns) #head(dyad.list)
+names(patternchanges) <- c("before", "after")
+
+removal.change.all <- removal_change %>% 
+  full_join(patternchanges, by=c("before", "after")) %>%
+  select(-change)
+removal.change.all[is.na(removal.change.all)]<-0.00
+
+## observed : NB. (rows=to, cols=from) in plotmat 
+mx.removal <- reshape2::dcast(removal_change , after~before, value.var="prop") 
+mx.removal <- mx.removal %>%
+  add_row(after="CC", B=0, CC=0, DH=0, .after = 1)
+mx.removal <- matrix.please(mx.removal)
+mx.removal[is.na(mx.removal)] <- 0
+
+ # set line width
+linewidth <- matrix(nrow=3,
+                    ncol=3,0)
+linewidth[1,1]<- (mx.removal[1,1]*10)+1      
+linewidth[1,2]<- (mx.removal[1,2]*10)+1
+linewidth[1,3]<- (mx.removal[1,3]*10)+1 
+
+linewidth[2,1]<- (mx.removal[2,1]*10)+1
+linewidth[2,2]<- (mx.removal[2,2]*10)+1  
+linewidth[2,3]<- (mx.removal[2,3]*10)+1
+
+linewidth[3,1]<- (mx.removal[3,1]*10)       
+linewidth[3,2]<- (mx.removal[3,2]*10) 
+linewidth[3,3]<- (mx.removal[3,3]*10) 
+
+
+
+# plot transition matrix
+pdf("./figures/plot_part4_obs_removal_onlytop.pdf")  # open and save the pdf file
+plotmat(mx.removal, 
+        #pty="s",
+        #pos=c(1,1),
+        
+        # lines
+        box.lwd=1, lwd=linewidth, lcol = "#ec0000bf",  #lcol=c( "#0000FF", "#7F7F7F"), 
+        
+        # boxes
+        box.cex=0.8, box.size=0.065 ,box.type="rect", # "circle", "ellipse", "diamond", "rect", "round", "hexa", "multi", "none"
+        box.prop=1, box.col = c( "#0000FF","#C00000" , "#7F7F7F"),
+        shadow.size = 0.0, 
+        my=0, mx=0.0, # vertical and horizontal shift of boxes, respecitvely 
+        
+        # self 
+        relsize=0.7, self.lwd=c(4.3,4.3), #self.lwd = linewidth, 
+        self.shiftx=c(.1, -0.1), self.shifty=c(-0.1, 0.1), 
+        
+        # arrow
+        #arr.lwd = c(1, 2,3),
+        #arr.length = 2,
+        curve = 0.125,
+        arr.tcol = "black" , arr.col = "#ec0000bf",
+     
+        # text
+        cex.txt=0.8, txt.col = "white",
+        main = "observed transitions after removals"
+        )
+
+dev.off() # Close the pdf file
+
+
+
+```
+
+
+
+
+
+
+# reintroduction pattern change
+
+## observed
+```{r}
+## reintroduction 2021
+obs_pattern_change <- dompattern21 %>%
+  #dplyr::select( bin,  dompattern) %>%
+  mutate(obs_after=lead(obspattern),
+         obs_pattern_change = paste(obspattern, obs_after, sep="-")) %>%   
+  rename(before=obspattern,
+         after=obs_after, 
+         change=obs_pattern_change) 
+
+binchange_reintro <- c(13, 17, 21)
+
+obs_pattern_change_reintro <- obs_pattern_change %>%
+  filter(bin %in% binchange_reintro) %>%
+   group_by( group, before,after,change) %>% #group_by(group) 
+  summarize(obs_n=length(change), obs_prop = obs_n/3) %>% 
+  #dplyr::select(-obs_n) %>% 
+  mutate(perturbation="removal",
+         same=if_else(before==after, "yes", "no"))
+
+## reintroduction 2022
+binchange_reintro22 <- c(4, 16, 24)
+
+obs_pattern_change_reintro22 <- obs_pattern_change22 %>%
+  filter(bin %in% binchange_reintro22) %>%
+  group_by(focalrank, before,after,change) %>% #group_by(group) 
+  summarize(obs_n=length(change), obs_prop = obs_n/3)%>% 
+  #dplyr::select(-obs_n) %>% 
+  mutate(perturbation="reintroduction",
+         same=if_else(before==after, "yes", "no")) 
+
+sum(obs_pattern_change_reintro22$obs_n)
+
+
+
+```
+
+combine
+```{r}
+reintro_change <- bind_rows(obs_pattern_change_reintro, 
+                            obs_pattern_change_reintro22) %>%
+  group_by(before, after, change) %>%
+  summarize(n=sum(obs_n), obs_prop=n/9) %>%
+  mutate(prop=round(obs_prop, 2))
+
+sum(reintro_change$n)
+```
+
+
+### visualise
+plotmat visualisez matrix (rows=to, cols=from))
+I have to change the direction of my matrix as I had rows=from/before and cols=to/after. 
+```{r}
+## observed : NB. (rows=to, cols=from) in plotmat 
+mx.reintro <- reshape2::dcast(reintro_change , after~before, value.var="prop") 
+mx.reintro <- mx.reintro %>%
+  add_row(after="DH", B=0, CC=0, DH=0)
+mx.reintro <- matrix.please(mx.reintro)
+mx.reintro[is.na(mx.reintro)] <- 0
+
+ # set line width
+linewidth <- matrix(nrow=3,
+                    ncol=3,0)
+linewidth[1,1]<- (mx.reintro[1,1]*10)+1      
+linewidth[1,2]<- (mx.reintro[1,2]*10)+1 
+linewidth[1,3]<- (mx.reintro[1,3]*10)+1 
+
+linewidth[2,1]<- (mx.reintro[2,1]*10)
+linewidth[2,2]<- (mx.reintro[2,2]*10)+1 
+linewidth[2,3]<- (mx.reintro[2,3]*10)  
+
+linewidth[3,1]<- (mx.reintro[3,1]*10)      
+linewidth[3,2]<- (mx.reintro[3,2]*10)
+linewidth[3,3]<- (mx.reintro[3,3]*10) 
+
+
+
+# plot transition matrix
+pdf("./figures/plot_part4_obs_reintro_onlytop.pdf")  # open and save the pdf file
+
+plotmat(mx.reintro, 
+        #pty="s",
+        #pos=c(1,1),
+        
+        # lines
+        box.lwd=1, lwd=linewidth, lcol = "#ec0000bf",  #lcol=c( "#0000FF", "#7F7F7F"), 
+        
+        # boxes
+        box.cex=0.8, box.size=0.065 ,box.type="rect", # "circle", "ellipse", "diamond", "rect", "round", "hexa", "multi", "none"
+        box.prop=1, box.col = c( "#0000FF","#C00000" , "#7F7F7F"),
+        shadow.size = 0.0, 
+        my=0, mx=0.0, # vertical and horizontal shift of boxes, respecitvely 
+        
+        # self 
+        relsize=0.7, self.lwd=c(4.3,4.3), #self.lwd = linewidth, 
+        self.shiftx=c(.1, -0.1), self.shifty=c(-0.1, 0.1), 
+        
+        # arrow
+        #arr.lwd = c(1, 2,3),
+        #arr.length = 2,
+        curve = 0.125,
+        arr.tcol = "black" , arr.col = "#ec0000bf",
+     
+        # text
+        cex.txt=0.8, txt.col = "white",
+        main = "observed transitions after reintroductions"
+        )
+dev.off() # Close the pdf file
+
+
+
+```
+
+# Randomise pattern changes
+
+
+
+1. Permute social dominance pattern points
+  - Change order of the data points by group (1000 iterations for each group, n=3 groups) 
+  - all groups show difference in which patterns are used, only randomize the observed patterns by group and not among all possible patterns, right? 
+
+2. Select per group only the bins prior and after a) removals (n=3 removals/group, totalling 9 removals) and b) reintroductions (totalling 9 reintroductions) to create a pattern change column
+
+3. Summarize by perturbation bin how many times of the 1000 runs, you see a particular pattern of the 9 possible pattern changes. Then create proportion by dividing the number by 1000. 
+        
+        - or - 
+
+I actually think I should summarize not by bin but overall. Otherwise I get a total average of average and not the average of total values as we not all patterns are used as much. So first I have to combine the dataframes created by step 2, totalling 9 removals times 1000 iterations = 9000 runs. Now we create a proportion by dividing it. 
+
+4. show the average of total values in figure 6 c and d. 
+
+5. to create distribution of proportions, I summarized by trial by group to get 66 values (2021: 3 trials x 4 possible pattern combos + 6 trials x 9 possible pattern combos). The proportion was calculated by dividing the number of runs of the 1000 iterations the specific pattern was observed by the total of 1000 iterations. As not all pattern changes are observed each trial/group, I should expand the list of distributions so that each trial/group has 9 possible patterns. These proportions are then visualized and the observed proportion is shown as well. (Fig. 6 e and f)
+
+6. To calculate p-value, find proportion of random values less than the observed values, you can use this as a kind of p value. p should be >0.975 for two-tailed test, >0.95 for one-tailed test for something significantly different from the random values in the reference model
+
+```{r}
+# create list of all possible patterns
+patterns <- c("B", "CC", "DH")
+pattern.list <- expand.grid(patterns, patterns) #head(dyad.list)
+names(pattern.list) <- c("before", "after")
+pattern.list$change <- paste(pattern.list$before, pattern.list$after, sep="-")
+
+
+```
+
+
+### 2021
+```{r}
+# randomise dom patterns -----
+
+glimpse(dompattern21)
+
+# Step 1: create new df
+s.pattern <- dompattern21 %>%
+  dplyr::select(group, bin, obspattern, focalrank) %>%
+  rename(observed_pattern=obspattern)
+
+
+# Step 2: create loop to get 1000 randomised patterns
+random_patterns <- data.frame(runID =numeric(),
+                              group = numeric(),
+                              focalrank = character(),
+                              bin=numeric(),
+                              oberved_pattern=character(),
+                              random_pattern=character())
+
+replicates <- 1000
+
+for(run in 1:replicates){
+ r.seed <- run
+ set.seed(r.seed)
+
+# create random distribution dominance patterns
+  s.pattern$runID <- rep(paste0("run",str_pad(r.seed, 4, side="left", pad = "0")))
+	
+  samplepat <- sample(1:length(s.pattern$observed_pattern))
+	samplepat
+	s.pattern$random_pattern <- s.pattern$observed_pattern[samplepat]
+
+  random_patterns <- rbind.data.frame(random_patterns, s.pattern)
+  
+}
+
+
+## check ref model output
+
+#check that the randomized interactions vary from the observed patterns
+random_patterns$observed_pattern == random_patterns$random_pattern
+
+#check that runs are different from each other
+head(subset(random_patterns, runID=="run0001"))
+head(subset(random_patterns, runID=="run0002"))
+head(subset(random_patterns, runID=="run0003"))
+head(subset(random_patterns, runID=="run0011"))
+head(subset(random_patterns, runID=="run0100"))
+
+#check that all runs ran as expected
+unique(random_patterns$runID)
+length(unique(random_patterns$runID))
+
+
+# Step 3: Calculate how often we see the same strategies or a change to bullying 
+
+before_after21 <- random_patterns %>% 
+  dplyr::select(group, runID, bin, focalrank, observed_pattern, random_pattern) %>%
+
+  # observed pattern change 
+  rename(obs_before = observed_pattern) %>%
+  group_by(runID) %>%
+  mutate(obs_after = lead(obs_before)) %>%
+  #drop_na() %>%
+  mutate(obs_pattern_change = paste(obs_before, obs_after, sep="-")) %>%
+
+# randomized pattern change
+  rename(random_before = random_pattern) %>%
+  group_by(runID) %>%
+  mutate(random_after = lead(random_before)) %>%
+  mutate(random_pattern_change = paste(random_before, random_after, sep="-")) %>%
+  drop_na() %>%
+  
+  
+  dplyr:: select(group, runID, bin, focalrank, obs_pattern_change,  random_pattern_change)
+
+#write.csv(before_after, "output/dompattern_random.csv")
+
+glimpse(before_after21)
+
+```
+
+#### removal
+```{r}
+glimpse(before_after21)
+
+## ----
+
+# Step 2: create loop to get summary
+rand_summ <- data.frame(
+                              group = numeric(),
+                              focalrank = character(),
+                              bin=numeric(),
+                              change=character(),
+                              random_n=numeric(),
+                              prop=numeric())
+
+
+## filter by bin/trial
+binchange_removal <- c(11, 15, 19)
+
+for(i in seq_along(binchange_removal)){
+  runby <- binchange_removal[i]
+  print(runby)
+  run.data <- subset(before_after21, bin==runby)
+  
+  
+  ## summarize
+pool<- run.data %>%
+  group_by(group, bin, random_pattern_change) %>%
+  summarise(random_n=length(random_pattern_change), 
+            random_prop = random_n/1000) %>%  # each run with 1000 randomized values
+  rename(change=random_pattern_change) %>%
+  #dplyr::select(-random_n) %>%
+  mutate(prop=round(random_prop, 2)
+         ) %>%
+  dplyr::select(-random_prop)
+
+check<- pool %>%
+  summarize(sum=sum(random_n))
+print(check$sum) # should be 1000
+
+ rand_summ<-rbind(rand_summ, pool )
+
+
+}
+
+rand_summ21 <- rand_summ
+
+```
+
+include all pattern possibilities
+```{r}
+
+# all possible pattern list
+pattern_changes <- pattern.list %>% dplyr::select(change) 
+
+# make empty data frame to put data in
+randXrun_all <- data.frame(bin=character(),
+                      change=character(), 
+                      random_n=numeric(),
+                      prop=numeric())
+
+loopby <- unique(rand_summ21$bin)
+
+for(i in seq_along(loopby)){
+  run.code <- loopby[i]
+  #print(run.code)
+  run.data <- subset(rand_summ21, bin==run.code)
+  
+  data_allpatterns <- merge(pattern_changes, run.data, all.x=TRUE,
+                       by=c("change")) 
+  
+  data_allpatterns$group<-2021
+  data_allpatterns$bin<-run.code
+  
+ #fill newly-merged data with 0's where no patterns
+ data_allpatterns[is.na(data_allpatterns)] <- 0
+ 
+ # check
+ sum(data_allpatterns$random_n) # should total 3 trials
+  
+   # combine in dataframe
+  rand_removal21_all<-rbind(randXrun_all, data_allpatterns)
+}
+
+glimpse(rand_removal21_all)
+summ_randxrun <- rand_removal21_all %>%
+  group_by(bin) %>%
+  tally() # now all runs have all 9 pattern combinations
+
+
+
+# How many runs do we see same pattern as observed? 
+obs.vs.rand <- before_after %>%
+  filter(bin %in% c(2,4,6,8,10,12,14,16, 18,20, 22,24)) %>%
+  group_by(runID) %>%
+  mutate(similar_pattern= if_else(obs_pattern_change==random_pattern_change,"yes", "no")) %>%
+  group_by(runID,similar_pattern) %>%
+  summarize(n=length(similar_pattern))
+  
+summ_obs.vs.rand  <- obs.vs.rand %>%
+  filter(similar_pattern=="yes", n==24) 
+total_runs_same_removal <- length(summ_obs.vs.rand$runID)/length(unique(before_after$runID))*100
+
+
+```
+
+
+
+#### reintroduction
+
+```{r}
+
+glimpse(before_after21)
+
+## ----
+
+# Step 2: create loop to get summary
+rand_summ <- data.frame(
+                              group = numeric(),
+                              focalrank = character(),
+                              bin=numeric(),
+                              change=character(),
+                              random_n=numeric(),
+                              prop=numeric())
+
+
+## filter by bin/trial
+binchange_reintro <- c(13, 17, 21)
+
+for(i in seq_along(binchange_reintro)){
+  runby <- binchange_reintro[i]
+  print(runby)
+  run.data <- subset(before_after21, bin==runby)
+  
+  
+  ## summarize
+pool<- run.data %>%
+  group_by( group, bin, random_pattern_change) %>%
+  summarise(random_n=length(random_pattern_change), 
+            random_prop = random_n/1000) %>%  # each run with 1000 randomized values
+  rename(change=random_pattern_change) %>%
+  #dplyr::select(-random_n) %>%
+  mutate(prop=round(random_prop, 2)
+         ) %>%
+  dplyr::select(-random_prop)
+
+check<- pool %>%
+  summarize(sum=sum(random_n))
+print(check$sum) # should be 1000
+
+ rand_summ<-rbind(rand_summ, pool )
+
+
+}
+
+rand_reintro21 <- rand_summ
+```
+
+include all possible patterns
+
+```{r}
+
+# all possible pattern list
+pattern_changes <- pattern.list %>% dplyr::select(change) 
+
+# make empty data frame to put data in
+randXrun_all <- data.frame(
+                      change=character(), 
+                      group=character(),
+                      bin=character(),
+                      random_n=numeric(),
+                      prop=numeric())
+
+loopby <- unique(rand_reintro21$bin)
+
+for(i in seq_along(loopby)){
+  run.code <- loopby[i]
+  #print(run.code)
+  run.data <- subset(rand_reintro21, bin==run.code) # somehow it doesn't work, instead of run.code I subset myself by bin
+  
+  data_allpatterns <- merge(pattern_changes, run.data, all.x=TRUE,
+                       by=c("change")) 
+  
+  data_allpatterns$group<-2021
+  data_allpatterns$bin<-run.code
+  
+ #fill newly-merged data with 0's where no patterns
+ data_allpatterns[is.na(data_allpatterns)] <- 0
+ 
+ # check
+ sum(data_allpatterns$random_n) # should total 3 trials
+  
+   # combine in dataframe
+  rand_reintro21_bin13<-rbind(randXrun_all, data_allpatterns)
+  rand_reintro21_bin17<-rbind(randXrun_all, data_allpatterns)
+  rand_reintro21_bin21<-rbind(randXrun_all, data_allpatterns)
+}
+
+rand_reintro21_all <- bind_rows(rand_reintro21_bin13, 
+                                rand_reintro21_bin17, 
+                                rand_reintro21_bin21)
+
+glimpse(rand_reintro21_all)
+summ_randxrun <- rand_reintro21_all %>%
+  group_by(bin) %>%
+  tally() # now all runs have all 9 pattern combinations
+
+
+```
+
+
+
+### 2022
+
+```{r randomise strategies 2022}
+# dompattern22 <- dompattern22 %>% 
+#   mutate(focalrank=if_else(dompattern_focal=="middle-ranked", "middle/low", 
+#                            if_else(dompattern_focal=="bottom-ranked", "middle/low", "top-ranked")),
+#          obspattern = factor(dompattern, 
+#             levels =c("bullying", "close competitor","downward heuristic"),
+#             labels =c("B", "CC","DH"))) %>%
+#    dplyr::select(-X, -dompattern_focal) 
+
+# randomise dom patterns -----
+# Step 1: create new df
+s.pattern <- dompattern22 %>%
+  dplyr::select(group, bin, obspattern, focalrank) %>%
+  filter(!bin %in% c(1,26), focalrank=="top-ranked") %>%
+  rename(observed_pattern=obspattern)
+
+
+# Step 2: create loop to get 1000 randomised patterns
+random_patterns1 <- data.frame(runID =numeric(),
+                              group = numeric(),
+                              focalrank = character(),
+                              bin=numeric(),
+                              oberved_pattern=character(),
+                              random_pattern=character())
+
+
+# by group separately
+## group1
+run.data1 <- subset(s.pattern, group==1)
+
+replicates <- 1000
+
+for(run in 1:replicates){
+ r.seed <- run
+ set.seed(r.seed)
+
+# create random distribution dominance patterns
+   run.data1$runID <- rep(paste0("run",str_pad(r.seed, 4, side="left", pad = "0")))
+	
+  samplepat <- sample(1:length( run.data1$observed_pattern))
+	samplepat
+	 run.data1$random_pattern <-  run.data1$observed_pattern[samplepat]
+
+  random_patterns1 <- rbind.data.frame(random_patterns1,  run.data1)
+  
+}
+
+## group2
+random_patterns2 <- data.frame(runID =numeric(),
+                              group = numeric(),
+                              focalrank = character(),
+                              bin=numeric(),
+                              oberved_pattern=character(),
+                              random_pattern=character())
+
+run.data2 <- subset(s.pattern, group==2)
+
+replicates <- 1000
+
+for(run in 1:replicates){
+ r.seed <- run
+ set.seed(r.seed)
+
+# create random distribution dominance patterns
+   run.data2$runID <- rep(paste0("run",str_pad(r.seed, 4, side="left", pad = "0")))
+	
+  samplepat <- sample(1:length( run.data2$observed_pattern))
+	samplepat
+	 run.data2$random_pattern <-  run.data2$observed_pattern[samplepat]
+
+  random_patterns2 <- rbind.data.frame(random_patterns2,  run.data2)
+  
+}
+
+## combine
+random_patterns <- bind_rows(random_patterns1,
+                             random_patterns2)
+
+
+## check ref model output
+
+
+# check whether per run and per group it adds up to the same number of patterns
+check_random1 <- random_patterns1 %>%
+  group_by(runID, random_pattern) %>%
+  summarize(n=length(random_pattern)) %>% # somehow doubling the totals
+  ungroup()
+
+# check whether per run and per group it adds up to the same number of patterns
+check_random2 <- random_patterns2 %>%
+  group_by(runID, random_pattern) %>%
+  summarize(n=length(random_pattern)) %>% # somehow doubling the totals
+  ungroup()
+
+# observed patterns per group
+dompattern_summ <- dompattern22 %>%
+  group_by(group, dompattern) %>%
+  filter(!bin %in% c(1,26)) %>%
+  tally()
+
+  
+
+#check that the randomized interactions vary from the observed patterns
+random_patterns$observed_pattern == random_patterns$random_pattern
+
+#check that runs are different from each other
+head(subset(random_patterns, runID=="run0001"))
+head(subset(random_patterns, runID=="run0002"))
+head(subset(random_patterns, runID=="run0003"))
+head(subset(random_patterns, runID=="run0011"))
+head(subset(random_patterns, runID=="run0100"))
+
+#check that all runs ran as expected
+unique(random_patterns$runID)
+length(unique(random_patterns$runID))
+
+
+# Step 3: Calculate how often do we see the same strategies or a change to bullying 
+
+before_after22 <- random_patterns %>% 
+  dplyr::select(runID, group, bin, focalrank, observed_pattern, random_pattern) %>%
+
+  # observed pattern change 
+  rename(obs_before = observed_pattern) %>%
+  group_by(runID, group) %>%
+  mutate(obs_after = lead(obs_before)) %>%
+  #drop_na() %>%
+  mutate(obs_pattern_change = paste(obs_before, obs_after, sep="-")) %>%
+
+# randomized pattern change
+  rename(random_before = random_pattern) %>%
+  group_by(runID, group) %>%
+  mutate(random_after = lead(random_before)) %>%
+  mutate(random_pattern_change = paste(random_before, random_after, sep="-")) %>%
+  drop_na() %>%
+  
+  
+  dplyr:: select(group, runID,bin, focalrank,  obs_pattern_change,  random_pattern_change)
+
+#write.csv(before_after, "output/dompattern_random.csv")
+
+glimpse(before_after22)
+
+```
+
+#### removal
+
+```{r }
+
+glimpse(before_after22)
+
+## ----
+
+# Step 2: create loop to get summary
+rand_summ <- data.frame(
+                              group = numeric(),
+                              focalrank = character(),
+                              bin=numeric(),
+                              change=character(),
+                              random_n=numeric(),
+                              prop=numeric())
+
+
+## filter by group
+bygroup <- unique(before_after22$group)
+
+for(i in seq_along(bygroup)){
+  run.code <- bygroup[i]
+  print(run.code)
+  group.data <- subset(before_after22, group==run.code)
+
+## filter by bin/trial
+binchange_removal22 <- c(2,6,10,14, 18, 22)
+
+for(i in seq_along(binchange_removal22)){
+  runby <- binchange_removal22[i]
+  print(runby)
+  run.data <- subset(group.data, bin==runby)
+  
+  
+  ## summarize
+pool<- run.data %>%
+  group_by(group, bin, random_pattern_change) %>%
+  summarise(random_n=length(random_pattern_change), 
+            random_prop = random_n/1000) %>%  # each run with 1000 randomized values
+  rename(change=random_pattern_change) %>%
+  #dplyr::select(-random_n) %>%
+  mutate(prop=round(random_prop, 2)
+         ) %>%
+  dplyr::select(-random_prop)
+
+check<- pool %>%
+  summarize(sum=sum(random_n))
+print(check$sum) # should be 1000
+
+ rand_summ<-rbind(rand_summ, pool )
+
+
+}}
+
+rand_summ22 <- rand_summ
+
+```
+
+
+
+
+
+#### reintroduction
+
+
+```{r }
+
+glimpse(before_after22)
+
+## ----
+
+# Step 2: create loop to get summary
+rand_summ <- data.frame(
+                              group = numeric(),
+                              focalrank = character(),
+                              bin=numeric(),
+                              change=character(),
+                              random_n=numeric(),
+                              prop=numeric())
+
+
+## filter by group
+bygroup <- unique(before_after22$group)
+
+for(i in seq_along(bygroup)){
+  run.code <- bygroup[i]
+  print(run.code)
+  group.data <- subset(before_after22, group==run.code)
+
+## filter by bin/trial
+binchange_reintro22 <- c(4, 8, 12, 16, 20, 24)
+
+for(i in seq_along(binchange_reintro22)){
+  runby <- binchange_reintro22[i]
+  print(runby)
+  run.data <- subset(group.data, bin==runby)
+  
+  
+  ## summarize
+pool<- run.data %>%
+  group_by(group, bin, random_pattern_change) %>%
+  summarise(random_n=length(random_pattern_change), 
+            random_prop = random_n/1000) %>%  # each run with 1000 randomized values
+  rename(change=random_pattern_change) %>%
+  #dplyr::select(-random_n) %>%
+  mutate(prop=round(random_prop, 2)
+         ) %>%
+  dplyr::select(-random_prop)
+
+check<- pool %>%
+  summarize(sum=sum(random_n))
+print(check$sum) # should be 1000
+
+ rand_summ<-rbind(rand_summ, pool )
+
+
+}}
+
+rand_reintro22 <- rand_summ
+
+```
+
+
+# Plots
+## removal
+
+###Combine
+```{r}
+rand_summ_removal <- bind_rows(rand_summ21, 
+                               rand_summ22)
+
+# average of total values
+comb_rand_removal <- rand_summ_removal %>%
+   separate(change, into = c("before", "after"), sep="-", remove = F)  %>%
+  group_by(before,after, change) %>% 
+  summarize(n=sum(random_n), 
+            prop=round(n/9000,2))  
+sum(comb_rand_removal$n)
+sum(comb_rand_removal$prop)
+
+
+# here I get total average of averages
+rand_removal <- rand_summ_removal %>%
+   separate(change, into = c("before", "after"), sep="-", remove = F)  %>%
+  group_by(before,after, change) %>% 
+ 
+  summarize(aveprop=mean(prop),
+            sdprop=sd(prop),
+            n=sum(random_n),
+            se=sdprop/sqrt(n)) %>%
+  mutate(prop=round(aveprop, 2),
+         sd=round(sdprop, 2))
+
+sum(rand_removal$aveprop)
+```
+
+###transition diagram
+
+```{r}
+
+## observed : NB. (rows=to, cols=from) in plotmat 
+mx.removal.rand <- reshape2::dcast(comb_rand_removal , after~before, value.var="prop") 
+mx.removal.rand <- matrix.please(mx.removal.rand )
+mx.removal.rand [is.na(mx.removal.rand )] <- 0
+
+ # set line width
+linewidth <- matrix(nrow=3,
+                    ncol=3,0)
+linewidth[1,1]<- (mx.removal.rand [1,1]*10)+1      
+linewidth[1,2]<- (mx.removal.rand [1,2]*10)+1 
+linewidth[1,3]<- (mx.removal.rand [1,3]*10)+1 
+linewidth[2,2]<- (mx.removal.rand [2,2]*10)+1  
+linewidth[2,1]<- (mx.removal.rand [2,1]*10)+1
+linewidth[2,3]<- (mx.removal.rand [2,3]*10)+1 
+linewidth[3,1]<- (mx.removal.rand [3,1]*10)+1       
+linewidth[3,2]<- (mx.removal.rand [3,2]*10)+1
+linewidth[3,3]<- (mx.removal.rand [3,3]*10)+1 
+
+
+
+# plot transition matrix
+pdf("./figures/plot_part4_rand_removal_top_total.pdf")  # open and save the pdf file
+plotmat(mx.removal.rand , 
+        #pty="s",
+        #pos=c(1,1),
+        
+        # lines
+        box.lwd=1, lwd=linewidth, lcol = "#56b4e9ff",  #lcol=c( "#0000FF", "#7F7F7F"), 
+        
+        # boxes
+        box.cex=0.8, box.size=0.065 ,box.type="rect", # "circle", "ellipse", "diamond", "rect", "round", "hexa", "multi", "none"
+        box.prop=1, box.col = c( "#0000FF","#C00000" , "#7F7F7F"),
+        shadow.size = 0.0, 
+        my=0, mx=0.0, # vertical and horizontal shift of boxes, respecitvely 
+        
+        # self 
+        relsize=0.7, self.lwd=c(4.3,4.3), #self.lwd = linewidth, 
+        self.shiftx=c(.1, -0.1), self.shifty=c(-0.1, 0.1), 
+        
+        # arrow
+        #arr.lwd = c(1, 2,3),
+        #arr.length = 2,
+        curve = 0.125,
+        arr.tcol = "black" , arr.col = "#56b4e9ff",
+     
+        # text
+        cex.txt=0.8, txt.col = "white",
+        main = "randomised transitions after removals"
+        )
+dev.off() # Close the pdf file
+
+
+
+```
+
+
+### distribution
+
+change the observed pattern changes
+
+
+```{r}
+rand_removal_all <- bind_rows(rand_removal21_all, rand_summ22) %>%
+  dplyr::select(group, bin, change, everything())
+
+
+ plot_dist_removal <-  ggplot(rand_removal_all,  #rand_summ_removal 
+                              aes(x = prop, y = change)) +
+  
+  geom_density_ridges2(scale=0.8, draw_baseline = F) +
+  
+  theme_ridges(#font_size = 12, #font_family = "",
+              line_size = 0.01,
+              grid = TRUE,
+              center_axis_labels = FALSE) + #grid=FALSE
+  theme(
+      legend.position="none",
+      panel.spacing = unit(0.1, "lines"),
+      strip.text.x = element_text(size = 8),
+      axis.title.x = element_text(hjust = 0.5),
+      #axis.line.x.bottom = element_line(linewidth = 0.75),
+      panel.grid.major.y = element_line(colour = "black")
+      #axis.title.y = element_text(hjust = 0.5)
+    ) +
+    xlab("proportion of runs") +
+    ylab("") +
+   scale_fill_manual(values = "#56b4e9ff") +  #c("#0000FF", "#b3b0e3", "#deebf7", "#7F7F7F")) + #"#C00000" ,
+   scale_x_continuous( expand = c(0, 0),limits = c(-.05,1.0)) +
+   scale_y_discrete(expand = expansion(mult = c(0.0, .3))) +
+   
+  # include observed proportion top-ranked (color orange)
+  # DH-DH 
+   geom_segment(y=9, yend=9.8, x = 0.22, xend=0.22, size=1, color="#ec0000bf") + 
+   geom_text(y = 9.25, x = 0.55, label = "p = 0.2", color="gray") +
+   
+  # DH-CC NA
+   
+  # DH-B 
+   geom_segment(y=7, yend=7.8, x = 0.11, xend=0.11, size=1, color="#ec0000bf") + 
+   geom_text(y = 7.25, x = 0.55, label = "p = 0.1", color="gray") +
+  
+  # CC-DH
+   geom_segment(y=6, yend=6.8, x = 0.11, xend=0.11, size=1, color="#ec0000bf") + 
+   geom_text(y = 6.25, x = 0.55, label = "p = 0.2", color="gray") +
+  
+  #CC-CC 
+   #geom_segment(y=5, yend=5.8, x = 0.13, xend=0.13, size=1) + 
+   
+  # CC-B
+  geom_segment(y=4, yend=4.8, x = 0.22, xend=0.22, size=1, color="#ec0000bf") +  
+  geom_text(y = 4.25, x = 0.55, label = "p = 0.0", color="black") +
+   
+  # B-DH
+  geom_segment(y=3, yend=3.8, x = 0.22, xend=0.22, size=1, color="#ec0000bf") + 
+   geom_text(y =3.25, x = 0.55, label = "p = 0.4", color="gray") +
+  
+  #B-CC NA
+   
+  # B-B 
+  geom_segment(y=1, yend=1.8, x = 0.11, xend=0.11, size=1, color="#ec0000bf") + 
+   geom_text(y = 1.25, x = 0.55, label = "p = 0.2", color="gray") +
+   
+   
+  #geom_segment(y=1, yend=5, x = 1, xend=1, size=1,  color="white") +
+   coord_cartesian(clip = "off") 
+
+plot_dist_removal
+
+
+ggsave("figures/plot_dist_removal_top_nocolor_correctdistr.pdf", height=4, width = 4)
+```
+
+
+Are observed values significantly different from random values in reference models?
+
+find proportion of random values less than the observed values, you can use this as a kind of p value. p should be >0.975 for two-tailed test, >0.95 for one-tailed test for something significantly different from the random values in the reference model
+  
+```{r}
+
+
+# p-values DH-DH
+randDD<- rand_removal_all %>% filter(change=="DH-DH")
+prop.val <- nrow(randDD[randDD$prop<removal_change$prop[removal_change$change=="DH-DH"], ])/nrow(randDD) 
+p.DD<- ifelse(prop.val>0.5, 1-prop.val, prop.val) 
+p.DD
+
+# DH-B
+randDB<- rand_removal_all %>% filter(change=="DH-B")
+prop.val <- nrow(randDB[randDB$prop<removal_change$prop[removal_change$change=="DH-B"], ])/nrow(randDB) 
+p.DB<- ifelse(prop.val>0.5, 1-prop.val, prop.val) 
+p.DB
+
+# CC-DH
+randCD<- rand_removal_all %>% filter(change=="CC-DH")
+prop.val <- nrow(randCD[randCD$prop<removal_change$prop[removal_change$change=="CC-DH"], ])/nrow(randCD) 
+p.CD<- ifelse(prop.val>0.5, 1-prop.val, prop.val) 
+p.CD
+
+# CC-B
+randCB<- rand_removal_all %>% filter(change=="CC-B")
+prop.val <- nrow(randCB[randCB$prop<removal_change$prop[removal_change$change=="CC-B"], ])/nrow(randCB) 
+p.CB<- ifelse(prop.val>0.5, 1-prop.val, prop.val) 
+p.CB
+
+statCB <- sum(randCB$random_n)/sum(rand_removal_all$random_n)
+diffCB <- round((removal_change$prop[removal_change$change=="CC-B"]) - statCB, 2) 
+
+# B-DH
+randBD<- rand_removal_all %>% filter(change=="B-DH")
+prop.val <- nrow(randBD[randBD$prop<removal_change$prop[removal_change$change=="B-DH"], ])/nrow(randBD) 
+p.BD<- ifelse(prop.val>0.5, 1-prop.val, prop.val) 
+p.BD
+
+# B-B
+randBB<- rand_removal_all %>% filter(change=="B-B")
+prop.val <- nrow(randBB[randBB$prop<removal_change$prop[removal_change$change=="B-B"], ])/nrow(randBB) 
+p.BB<- ifelse(prop.val>0.5, 1-prop.val, prop.val) 
+p.BB
+
+
+
+prop.val <- nrow(refmodel2.summary.group[refmodel2.summary.group$R.cor.strength<observed.summary$obs.cor.strength, ])/nrow(refmodel2.summary.group) 
+p.ref2.strength<- ifelse(prop.val>0.5, 1-prop.val, prop.val) 
+p.ref2.strength
+```
+
+
+
+## reintroduction
+
+### combine
+```{r}
+
+rand_summ_reintro <- bind_rows(rand_reintro21, 
+                               rand_reintro22)
+
+
+# average of total values
+comb_rand_reintro <- rand_summ_reintro %>%
+     separate(change, into = c("before", "after"), sep="-", remove = F)  %>%
+  group_by(before,after, change) %>% 
+  summarize(n=sum(random_n), 
+            aveprop=n/9000)  %>%
+  mutate(prop=round(aveprop, 2))
+sum(comb_rand_reintro$n)
+sum(comb_rand_reintro$prop)
+
+# this creates total average of averages
+rand_reintro <- rand_summ_reintro %>%
+     separate(change, into = c("before", "after"), sep="-", remove = F)  %>%
+  group_by(before,after, change) %>% 
+  
+  summarize(aveprop=mean(prop),
+            sdprop=sd(prop),
+            n=sum(random_n),
+            se=sdprop/sqrt(n)) %>%
+  mutate(prop=round(aveprop, 2),
+         sd=round(sdprop, 2))
+
+sum(rand_reintro$prop)
+sum(rand_reintro$n)
+
+```
+
+
+
+### transition diagram
+```{r}
+
+## observed : NB. (rows=to, cols=from) in plotmat 
+mx.reintro.rand <- reshape2::dcast(comb_rand_reintro , after~before, value.var="prop") 
+mx.reintro.rand <- matrix.please(mx.reintro.rand )
+mx.reintro.rand [is.na(mx.reintro.rand )] <- 0
+
+ # set line width
+linewidth <- matrix(nrow=3,
+                    ncol=3,0)
+linewidth[1,1]<- (mx.reintro.rand [1,1]*10)+1      
+linewidth[1,2]<- (mx.reintro.rand [1,2]*10)+1 
+linewidth[1,3]<- (mx.reintro.rand [1,3]*10)+1 
+linewidth[2,2]<- (mx.reintro.rand [2,2]*10)+1  
+linewidth[2,1]<- (mx.reintro.rand [2,1]*10)+1
+linewidth[2,3]<- (mx.reintro.rand [2,3]*10)+1 
+linewidth[3,1]<- (mx.reintro.rand [3,1]*10)+1       
+linewidth[3,2]<- (mx.reintro.rand [3,2]*10)+1
+linewidth[3,3]<- (mx.reintro.rand [3,3]*10)+1 
+
+
+
+# plot transition matrix
+pdf("./figures/plot_part4_rand_reintro_top_total.pdf")  # open and save the pdf file
+plotmat(mx.reintro.rand , 
+        #pty="s",
+        #pos=c(1,1),
+        
+        # lines
+        box.lwd=1, lwd=linewidth, lcol = "#ec0000bf",  #lcol=c( "#0000FF", "#7F7F7F"), 
+        
+        # boxes
+        box.cex=0.8, box.size=0.065 ,box.type="rect", # "circle", "ellipse", "diamond", "rect", "round", "hexa", "multi", "none"
+        box.prop=1, box.col = c( "#0000FF","#C00000" , "#7F7F7F"),
+        shadow.size = 0.0, 
+        my=0, mx=0.0, # vertical and horizontal shift of boxes, respecitvely 
+        
+        # self 
+        relsize=0.7, self.lwd=c(4.3,4.3), #self.lwd = linewidth, 
+        self.shiftx=c(.1, -0.1), self.shifty=c(-0.1, 0.1), 
+        
+        # arrow
+        #arr.lwd = c(1, 2,3),
+        #arr.length = 2,
+        curve = 0.125,
+        arr.tcol = "black" , arr.col = "#ec0000bf",
+     
+        # text
+        cex.txt=0.8, txt.col = "white",
+        main = "randomised transitions after reintroductions"
+        )
+dev.off() # Close the pdf file
+
+
+
+```
+
+### distribution 
+
+update the observed pattern changes
+
+```{r}
+rand_reintro_all <- bind_rows(rand_reintro21_all, rand_reintro22) %>%
+  dplyr::select(group, bin, change, everything())
+
+plot_dist_reintro <-  ggplot(rand_reintro_all,  #rand_summ_reintro, 
+                              aes(x = prop, y = change)) +
+  geom_density_ridges2(scale=0.8, draw_baseline = F) +
+  
+  theme_ridges(#font_size = 12, #font_family = "", 
+                line_size = 0.01,
+                # grid = FALSE,
+                center_axis_labels = FALSE) + #grid=FALSE
+  theme(
+      legend.position="none",
+      panel.spacing = unit(0.1, "lines"),
+      strip.text.x = element_text(size = 8),
+      axis.title.x = element_text(hjust = 0.5),
+       panel.grid.major.y = element_line(colour = "black")
+      #axis.title.y = element_text(hjust = 0.5)
+    ) +
+    xlab("proportion of runs") +
+    ylab("") +
+    scale_fill_manual(values = "#56b4e9ff") + #scale_fill_manual(values = c("#0000FF", "#b3b0e3", "#deebf7", "#7F7F7F")) + 
+    scale_x_continuous( expand = c(0, 0),limits = c(-.05,1.0)) +
+    scale_y_discrete(expand = expansion(mult = c(0.0, .3))) +
+   
+  # include observed proportion top-ranked (color orange)
+  # DH-DH 
+  #geom_segment(y=9, yend=9.8, x = 0.13, xend=0.13, size=1) + 
+  
+  # DH-CC NA
+  
+  # DH-B 
+  geom_segment(y=7, yend=7.8, x = 0.56, xend=0.56, size=1, color="#ec0000bf") + 
+  geom_text(y = 7.25, x = 0.75, label = "p = 0.0", color="black") +
+  
+  # CC-DH
+  #geom_segment(y=6, yend=6.8, x = 0.11, xend=0.11, size=1) + 
+  
+  #CC-CC
+  geom_segment(y=5, yend=5.8, x = 0.11, xend=0.11, size=1, color="#ec0000bf") + 
+  geom_text(y = 5.25, x = 0.75, label = "p = 0.0", color="black") +
+  
+  #CC-B
+  geom_segment(y=4, yend=4.8, x = 0.11, xend=0.11, size=1, color="#ec0000bf") + 
+  geom_text(y = 4.25, x = 0.75, label = "p = 0.3", color="gray") +
+  
+  #DH-B
+  #geom_segment(y=3, yend=3.8, x = 0.56, xend=0.56, size=1) + 
+  
+  #Dh-CC
+  
+  #B-B
+  geom_segment(y=1, yend=1.8, x = 0.22, xend=0.22, size=1, color="#ec0000bf") + 
+  geom_text(y = 1.25, x = 0.75, label = "p = 0.3", color="gray") +
+  
+  coord_cartesian(clip = "off") 
+
+plot_dist_reintro
+
+ggsave("figures/plot_dist_reintro_top_nocolor_cordistr.pdf", height = 4, width = 4)
+```
+
+
+
+Are observed values significantly different from random values in reference models?
+
+find proportion of random values less than the observed values, you can use this as a kind of p value. p should be >0.975 for two-tailed test, >0.95 for one-tailed test for something significantly different from the random values in the reference model
+  
+```{r}
+# DH-B
+randDB<- rand_reintro_all %>% filter(change=="DH-B")
+prop.val <- nrow(randDB[randDB$prop<reintro_change$prop[reintro_change$change=="DH-B"], ])/nrow(randDB) 
+p.DB<- ifelse(prop.val>0.5, 1-prop.val, prop.val) 
+p.DB
+
+statDB <- sum(randDB$random_n)/sum(rand_reintro_all$random_n)
+diffDB <- round((reintro_change$prop[reintro_change$change=="DH-B"]) - statDB,2) 
+
+# CC-CC
+randCC<- rand_reintro_all %>% filter(change=="CC-CC")
+prop.val <- nrow(randCC[randCC$prop<reintro_change$prop[reintro_change$change=="CC-CC"], ])/nrow(randCC) 
+p.CC<- ifelse(prop.val>0.5, 1-prop.val, prop.val) 
+p.CC
+
+statCC <- sum(randCC$random_n)/sum(rand_reintro_all$random_n)
+diffCC <- round((reintro_change$prop[reintro_change$change=="CC-CC"]) - statCC, 2) 
+
+# CC-B
+randCB<- rand_reintro_all %>% filter(change=="CC-B")
+prop.val <- nrow(randCB[randCB$prop<reintro_change$prop[reintro_change$change=="CC-B"], ])/nrow(randCB) 
+p.CB<- ifelse(prop.val>0.5, 1-prop.val, prop.val) 
+p.CB
+
+# B-B
+randBB<- rand_reintro_all %>% filter(change=="B-B")
+prop.val <- nrow(randBB[randBB$prop<reintro_change$prop[reintro_change$change=="B-B"], ])/nrow(randBB) 
+p.BB<- ifelse(prop.val>0.5, 1-prop.val, prop.val) 
+p.BB
+
+```
+
+
+
+
+
+
+
