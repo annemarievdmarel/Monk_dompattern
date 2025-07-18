@@ -2,19 +2,21 @@
 
 Social manipulation experiment to derive social dominance patterns in monk parakeets
 
-We provide the code and data for all the analyses for the manuscript titled "Perturbations of single key individuals are sufficient to trigger group-level shifts in social dominance patterns"
+We provide the code and data for all the analyses for the manuscript titled "Social manipulations trigger shifts in group-level dominance patterns"
 
 LICENSE: CC BY-NC 4.0
 
 CITATION DOI: 10.5281/zenodo.6847366
 
-DESCRIPTION: We performed three social manipulations where we removed and reintroduced a top-ranked monk parakeet for 8 days each to study whether these perturbations of a key individual were sufficient to trigger a shift in group-level dominance patterns.
+DESCRIPTION: To investigate factors affecting dominance patterns, we experimentally manipulated captive groups of monk parakeets (*Myiopsittamonachus*) using targeted perturbations to cause social instability through rank-based removals and reintroductions of group members across three study years (2020-2022).
 
-CODE: All the code for the analyses in the manuscript are provided in the Rmarkdown file called "Stats_perturbations_MOPA_dominance patterns".
+CODE: All the code for the analyses in the manuscript are provided in the Rmarkdown files. The first code files are the "stats_perturbations_MOPA_dominance patterns\_[year].Rmd" to summarize the interaction files and obtain the dominance patterns, which are used for further analyses, such as "dompatterns_analysis_perturbations.Rmd" for the dominance pattern comparisons, "Stats_aggression dynamics.Rmd" for the aggression balance, and "Stats_aggression networks.Rmd" for the visualisation of aggression networks.
 
-METADATA: The data files are provided in the data folder.
+METADATA: The output folder contains the summarized aggression by dyad and by assessment period files ("dyad.aggXbin.[fieldseason].csv"), the power score files, and the dominance pattern files.
 
-"2021_interactions_bin0-12.csv" contains all the agonistic interaction data:
+The data files are provided in the data folder. For example, to obtain the dyad output files for the 2021 field season, the following files are necessary:
+
+"2021_interactions_bin0-12.csv" contains all the agonistic interaction data
 
 -   sessionKEY = date and observer,
 -   session_start_timeStamp = date and time observation session started
