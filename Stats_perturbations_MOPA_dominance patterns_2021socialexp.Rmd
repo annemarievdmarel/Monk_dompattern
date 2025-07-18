@@ -40,7 +40,7 @@ library(tidyverse)
 library(reshape2)
 library(stringr)
 library(purrr)
-library(domstruc) #install_github("danm0nster/domstruc")
+library(domstruc) #remotes::install_github("danm0nster/domstruc")
 library(ggraph)
 library(diagram)
 library(ggpubr)
@@ -81,7 +81,7 @@ bins <- bin.dates %>%
   dplyr::select(date, type, bin, n_birds) 
 
 # bird list
-birdIDs_capture<- read.csv("data/2021_birdIDs.csv") 
+ birdIDs_capture<- read.csv("data/2021_birdIDs.csv") 
 attrib_node <- birdIDs_capture %>%
   filter(mark_id3!="") %>%
   dplyr::select(-mark_id1,-mark_id2,-mark_id3, -year_death)
@@ -359,10 +359,10 @@ dyad.totalaggXbin.2021socialexp <- dyad.totalaggXbin
 ### total aggression
 ```{r sum total aggression}
 ## Summarize displacements & crowds combined --> total aggression
-totalagg<- read.csv("./output/dyad.aggXbin.socialexp21.csv")
-sum(totalagg$n.aggXbin)
+dyad.totalaggXbin<- read.csv("./output/dyad.aggXbin.socialexp21.csv")
+sum(dyad.totalaggXbin$n.aggXbin)
 
-dyad.totalaggXbin <- dyad.totalaggXbin.21exp
+#dyad.totalaggXbin <- dyad.totalaggXbin.21exp
 
 #head(dyad.totalaggXbin) # crowds and displacement combined from the start, which is more conservative
 str(dyad.totalaggXbin)
@@ -883,7 +883,6 @@ obs.hours <- hoursobs %>%
 # total aggression
 glimpse(sum.aggDCXbin_21exp)
 
-
 # mean total of agonistic events observed per bin
 summ_agXbin <- sum.aggDCXbin_21exp %>%
   summarize(mean_ag =mean(n.agg),
@@ -915,6 +914,8 @@ max(summ_ag_21exp$ag_obs, na.rm = T)
 # 
 # min(summ_ag_21exp $ag_person_obs, na.rm = T)
 # max(summ_ag_21exp $ag_person_obs, na.rm = T)
+
+write.csv(summ_ag_21exp, "output/summ_agg2021social.csv")
 ```
 
 ### plot aggression rate

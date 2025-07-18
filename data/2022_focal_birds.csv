@@ -1,0 +1,13 @@
+trial,bin,removal_type,group,rank,focal,focal_displace,focal_CD_not conservative,focal_CD_conservative,date_perturbation,comment
+1,"1, 2",top-ranked,1_west,1,PBO,,,,2022-01-29,
+1,"1, 2",top-ranked,2_east,1,BBO,,,,2022-01-29,
+2,"5, 6",middle-ranked,1_west,5?,OOO,,,,2022-02-15,could have been rank 6 instead
+2,"5, 6",middle-ranked,2_east,5?,OBB,,,,2022-02-15,could have been rank 6 instead
+3,"9, 10",middle-ranked,1_west,6?,PGG,,,,2022-03-04,could have been rank 5 instead
+3,"9, 10",middle-ranked,2_east,6?,PBP,,,,2022-03-04,could have been rank 5 instead
+4,"13, 14",top-ranked,1_west,1,GPO,GPO/BOB,GPO/BOB,GPO/BOB,2022-03-22,
+4,"13, 14",top-ranked,2_east,1,GOO,GOO,GOO,GOO,2022-03-22,
+5,"17, 18",bottom-ranked,1_west,11,OPP,OPP,OPP,OPP,2022-04-07,
+5,"17, 18",bottom-ranked,2_east,11,OGO,GOO,GOO,GOO,2022-04-07,"GOO already removed, so now we remove the next lowest in rank (OGO: ranked 10)"
+6,"21, 22",top-ranked,1_west,1,BBB,BBB,BBB,BBB,2022-04-25,
+6,"21, 22",top-ranked,2_east,1,GOP,GOP,GOP,GOP,2022-04-25,

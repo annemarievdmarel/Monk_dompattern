@@ -258,7 +258,7 @@ unique(behave_agg$date)
 # filter displacement & crowd data from period prior to social perturbations ()
 aggDC <- behave_agg %>% 
   filter(behavior=="displace" | behavior=="crowd", 
-         bin %in% c(7, 8,9,10) # bin %in% c(7, 8,9,10) = 20 birds
+         bin<7 # bin %in% c(7, 8,9,10) = 20 birds
          # bin<7 = 22 birds, 
          ) %>%
   dplyr::select(orderkey,  sessionKEY, type, bin, date, time, actor, subject, behavior)
@@ -320,7 +320,8 @@ dyad.totalaggXbin <- bind_rows(dyad.totalaggXbin_22birds,
 ```{r sum total aggression}
 ## Summarize displacements & crowds combined --> total aggression
 totalagg<- read.csv("./output/dyad.aggXbin.start21.csv")
-sum(totalagg$n.aggXbin) = sum(dyad.totalaggXbin_22birds$n.aggXbin) + sum(dyad.totalaggXbin_20birds$n.aggXbin)
+sum(totalagg$n.aggXbin) == sum(dyad.totalaggXbin_22birds$n.aggXbin) + sum(dyad.totalaggXbin_20birds$n.aggXbin)
+sum(totalagg$n.aggXbin) == sum(dyad.totalaggXbin$n.aggXbin)
 # all good
 
 str(dyad.totalaggXbin)

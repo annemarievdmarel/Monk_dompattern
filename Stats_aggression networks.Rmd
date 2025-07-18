@@ -1,0 +1,1161 @@
+---
+title: "Aggression networks"
+author: "Annemarie van der Marel"
+date: "2024-12-10"
+output: html_document
+---
+
+#Session info
+```{r}
+sessionInfo()
+
+#citation('diagram')
+#citation('ggridges')
+```
+
+
+#Load packages
+```{r, include=FALSE, echo=FALSE}
+library(tidyverse)
+library(reshape2)
+library(stringr)
+library(purrr)
+library(domstruc) #install_github("danm0nster/domstruc")
+library(ggraph)
+library(diagram)
+library(ggpubr)
+library(ggridges)
+library(igraph)
+library(ggraph)
+library(vegan)
+```
+
+# import data
+
+```{r}
+aggXbin21 <- read.csv("./output/dyad.aggXbin.socialexp21.csv") %>%
+  dplyr::select(-X)
+
+
+aggXbin22 <- read.csv("./output/dyad.aggXbin2022.csv") %>%
+  dplyr::select(-X)
+
+# power scores 
+power21 <- read.csv("./output/MOPA_power score_2021.csv") %>% 
+  rename(period=bin)
+
+power22 <- read.csv("./output/powerXbin2022.csv")
+
+bins21 <- read.csv("./data/bins2021.csv")
+
+# focals 2022
+focals22 <- read.csv("./data/2022_focal_birds.csv") 
+
+```
+
+
+
+# 2021 Aggression networks
+
+join dominance scores to dyad aggression dataframe for both actor and subject
+
+Structure of hierarchy:
+- % of fights rule breakers vs rule followers
+
+plot aggression network by dominance rank on y-axis and jitter on x-axis. One convenient way to adjust node coordinates is to plot with tkplot first, handtune the placement of the vertices, query the coordinates by the tk_coords function and use them with plot to plot the graph to any R device.
+
+## bin selection
+before vs after removal
+BBB: bin c(1,2)
+GPG: bin c(5,6)
+OPP: bin c(9,10)
+
+before reintroduction vs upon reintroduction 
+BBB: bin  c(3,4) 
+GPG: bin  c(7,8)
+OPP: bin  c(11,12)
+```{r}
+bin19birds <- c(2,3,6,7,10,11) # include removed focal bird in matrix with 0's
+bin20birds <- c(1,4,5,8,9,12)
+
+# per trial and period separate -> differently colored focals compared to the rest of the birds
+bintrial1_focal <- c(1,4)
+bintrial1_nofocal <- c(2,3)
+bintrial2_focal <- c(5,8)
+bintrial2_nofocal <- c(6,7)
+bintrial3_focal <- c(9,12)
+bintrial3_nofocal <- c(10,11)
+
+```
+
+## prepare rank dataframe
+```{r}
+glimpse(ec_rankXbin)
+range(ec_rankXbin$dom_ec)
+
+# change bins
+bins <- bin.dates %>%
+  dplyr::select(bin, rank_assessment) %>%
+  drop_na() %>%
+  mutate(bin=as.integer(bin)) %>%
+  group_by(bin) %>%
+  slice(1)
+
+ec_rank<- ec_rankXbin %>%
+  left_join(bins) %>% 
+  dplyr::select(-bin) %>%
+  rename(bin=rank_assessment) %>%
+  mutate(power=1-dom_ec,
+         bin=as.factor(bin)) %>%
+  dplyr::select(bin, id,power, dom_ec, rank)
+  
+glimpse(ec_rank)
+
+```
+
+## create edge list
+change bin each time as the loop didn't work
+```{r}
+# check data
+glimpse(dyad.totalaggXbin)
+sum(dyad.totalaggXbin$n.aggXbin)
+unique(dyad.totalaggXbin$subject)
+length(unique(dyad.totalaggXbin$actor))
+length(unique(dyad.totalaggXbin$subject))
+sort(unique(dyad.totalaggXbin$bin))
+
+dyad.totalaggXbin$bin <- as.factor(dyad.totalaggXbin$bin)
+
+# combine dom_ec and rank to edge  dataframe
+attrib_edge <- dyad.totalaggXbin %>%
+  dplyr::select(-X) %>%
+  #filter(bin %in% bintrial2_nofocal) %>%   # change 
+  filter(bin==8) %>%
+  #slice(rep(seq_len(n()), n.aggXbin)) %>%  # transform to edge list
+  #mutate(weight = 1) %>%
+  dplyr::rename(id=actor, weight=n.aggXbin) %>% 
+  left_join(ec_rank, by=c("id", "bin")) %>% 
+  dplyr::rename(actor=id, actor_power=power, actor_domec=dom_ec, actor_rank=rank) %>%
+  dplyr::rename(id=subject) %>%
+  left_join(ec_rank, by=c("id", "bin")) %>%
+  dplyr::rename(subject=id, subject_power=power, subject_domec=dom_ec, subject_rank=rank) %>%
+  mutate(rule = if_else(actor_rank < subject_rank, "follower", "breaker"),# low dom_ec/rank = higher ranking
+         color= if_else(rule=="breaker", "#f03b20","#2c7fb8")) %>% #"#dc8580", "#83b2d0" -> too dull
+  arrange(-actor_power) 
+glimpse(attrib_edge)
+```
+
+## visualize aggression networks
+
+### network graph (20 birds)
+
+
+First, for all 20 birds, where focals are highlighted
+bin20birds <- c(1,4,5,8,9,12)
+
+```{r aggression network 20 birds (highlight focal)}
+  # choose bin
+  run.code<-sort(unique(attrib_edge$bin))
+  run.code
+  
+  # create graph from dataframe
+ gdf <- graph.data.frame(attrib_edge)
+ 
+  # create layout
+ ## add rank 
+ power_plot <- ec_rank %>% 
+  filter(bin==run.code) %>%
+  left_join(attrib_node) %>%
+  dplyr::select(id, sex, power, rank) %>%
+  arrange(-power) # changed to descending order rank instead of alphabethical order
+ 
+ range(ec_rank$power)
+ #range_ec_GPG <- range(ec_rank$dom_ec)
+
+  treelayout <- layout_as_tree(gdf)  #V1=x, V2=y
+  treelayout
+
+  # change per bin
+  ## change y axis to represent highest ranking on top of the netwwork
+  ec_lay <- cbind(treelayout, power_plot$power) # observed ec rank 
+  ec_lay<-ec_lay[,-2] # delete column 2
+
+  ## change x axis to provide jitter of nodes
+  #jitter<- c(0,-4,-5,1,2,3,0.5,3.5,-1.5,-3,-4,5,1.5,-2,2.5,5,-3.5,-1,-2.5,4.5,4)
+  jitter20<- c(0,2,0.5,-3,-2,4,2.5,-4,3.5,-1,4.5,3,-4,-5,-0.5,-3,5,1,-2.5, 0) # diamond shape
+  ec_lay <- cbind(jitter20, ec_lay)
+  ec_lay<-ec_lay[,-2] # delete column 2
+  #colnames(ec_lay) <- c("V1", "V2")
+
+  
+## set edge color
+E(gdf)$rule <- as.character(attrib_edge$rule)
+# unique(bin.data$color)
+#E(gdf)$rule <- adjustcolor(as.character(bin.data$color),alpha=.6)
+
+## add vertex/node attribute
+V(gdf)$name <- power_plot$id
+V(gdf)$dom <- power_plot$power # now we have to reverse y-axis
+V(gdf)$sex <- power_plot$sex
+
+## set node color  
+# all green during removal period focals
+#V(gdf)$fill <- c(alpha("#b8d79c", 1)) # all birds green
+
+# highlight focal; "#1f78b4" for BBB; "#33a02c" for GPG; "#ff7f00" for OPP
+#V(gdf)$fill<- c( alpha("#b8d79c", 1), "#1f78b4")[1+(V(gdf)$name=="BBB")]
+V(gdf)$fill<- c(alpha("#b8d79c", 1), "#6a51a3")[1+(V(gdf)$name=="GPG")]  # "#6a51a3" -> PURPLE & "#33a02c" -> DARK GREEN
+#V(gdf)$fill<- c( alpha("#b8d79c", 1), "#ff7f00")[1+(V(gdf)$name=="OPP")] # "#ff7f00" -> orange & 
+
+
+ # plot graph
+ #library(ggraph); class(gdf); gdf
+
+set.seed(42)
+
+# layout
+layout <- create_layout(gdf, layout=ec_lay)
+head(layout)
+
+
+# plot
+
+p8 <-
+  ggraph(gdf, layout = ec_lay) +
+  
+  # --- edges
+  # geom_edge_link0(aes(edge_width = weight), edge_colour = E(gdf)$color) + # edges going in multiple directions are overlapped
+  geom_edge_fan(aes(edge_width = weight, 
+                    colour=rule,
+                    alpha = 0.6 # ..index..
+                    ), 
+                strength = 0.05) + # 0.05; curved edges. strength > 1 will create wider fans while the reverse will make them more narrow. If there are no parallel edges it behaves like geom_edge_link() and draws a straight line, but if parallel edges exists it will spread them out as arcs with different curvature.
+  #scale_edge_alpha('Edge direction', guide = 'edge_direction') + # have to include ..index..instead of alpha 0.6 to create gradient
+  scale_y_continuous(limits = c(0.82, 1.0), breaks = c(0.85,0.90, 0.95, 1.00) ) +
+  scale_edge_width_continuous(range = c(0.2,3)) + 
+  scale_edge_colour_manual(values = c("#f03b20", "#2c7fb8")) +
+  
+  # --- nodes
+  geom_node_point(aes( shape= sex,
+                       fill = as.factor(layout$fill),
+                       color = "white", size=10)) + 
+  # highlight focal; "#1f78b4" for BBB; green("#33a02c") or purple (alpha("#7030A0", 0.6) for GPG; "#ff7f00" for OPP
+  scale_fill_manual(name = "fill",
+                     values=  c("#6a51a3", alpha("#b8d79c", 1))) + #c(  "#1f78b4", alpha("#b8d79c", 1)) /  "#6a51a3" GPG / alpha("#b8d79c", 1), "#ff7f00") OPP
+  scale_color_manual(values="white") +
+  scale_shape_manual( name = "sex", 
+                      values = c( 21, 23 ), #c( 21, 23 )  19, 17 
+                      labels = c( "female", "male" )) +
+  #geom_node_text(aes(label = layout$name), size=3) + #, , size=2 # bird names
+  
+  # --- layout
+  #scale_size_continuous(range = c(1,6))+
+  theme_graph()+ 
+  labs(y="Power score" ) +
+  ggtitle(paste("bin",run.code, sep=" ")) +
+  theme(legend.position = "none", #"bottom"
+        text=element_text(size=12),
+        axis.line.y = element_line(),
+        axis.text.y = element_text(),
+        axis.title.y = element_text(),
+        axis.ticks.y = element_line())  
+
+ p8
+
+ #ggsave(paste0("./figures/aggnwXbin_bin",run.code,"_3x3.pdf"), 
+#        width = 3, height = 3,
+#       device = cairo_pdf,
+#       plot=p) #device = cairo_pdf,
+
+# ggsave(paste0("./figures/aggnwXbin_bin",run.code,".pdf"), 
+#       device = cairo_pdf,
+#       plot=p) 
+#dev.off()
+
+
+#}
+
+ 
+ nw_before_removal <- ggarrange(p1, p5, p9,  
+          nrow = 3, ncol = 1)
+  nw_before_removal
+ ggsave( "./figures/nw_before_removal.pdf",
+        width = 3.5, height = 9,
+        device = cairo_pdf)
+
+
+nw_after_reintro <- ggarrange(p4, p8, p12, 
+                               nrow = 3, ncol = 1)
+nw_after_reintro
+ggsave( "./figures/nw_after==reintro.pdf",
+        width = 3.5, height = 9,
+        device = cairo_pdf)
+```
+
+### network graph (19 birds)
+Second, for 19 birds, where focals are removed; this affects the layout. 
+bin19birds <- c(2,3,6,7,10,11) 
+
+```{r aggression network 19 birds (removal period)}
+
+# combine dom_ec and rank to edge  dataframe
+attrib_edge <- dyad.totalaggXbin %>%
+  dplyr::select(-X) %>%
+  #filter(bin %in% bintrial2_nofocal) %>%   # change 
+  filter(bin %in% c(2,3,6,7,10,11) ) %>%
+  #slice(rep(seq_len(n()), n.aggXbin)) %>%  # transform to edge list
+  #mutate(weight = 1) %>%
+  dplyr::rename(id=actor, weight=n.aggXbin) %>% 
+  left_join(ec_rank, by=c("id", "bin")) %>% 
+  dplyr::rename(actor=id, actor_power=power, actor_domec=dom_ec, actor_rank=rank) %>%
+  dplyr::rename(id=subject) %>%
+  left_join(ec_rank, by=c("id", "bin")) %>%
+  dplyr::rename(subject=id, subject_power=power, subject_domec=dom_ec, subject_rank=rank) %>%
+  mutate(rule = if_else(actor_rank < subject_rank, "follower", "breaker"),# low dom_ec/rank = higher ranking
+         color= if_else(rule=="breaker", "#f03b20","#2c7fb8")) %>% #"#dc8580", "#83b2d0" -> too dull
+  arrange(-actor_power) 
+glimpse(attrib_edge)
+
+  
+loopby<-sort(unique(attrib_edge$bin))
+
+for(i in seq_along(sort(unique(attrib_edge$bin)))){
+  run.code <- 11
+  print(run.code)
+  
+# SUBSET data by bin
+ bin.data <- attrib_edge %>% 
+   filter( bin==run.code) %>% #run.code
+   arrange(-actor_power) 
+
+  ## create graph from dataframe
+ gdf <- graph.data.frame(bin.data)
+ 
+  # create layout
+ ## add rank 
+ power_plot <- ec_rank %>% 
+  filter(bin==run.code) %>%
+  left_join(attrib_node) %>%
+  dplyr::select(id, sex, power, rank) %>%
+  arrange(-power) # changed to descending order rank instead of alphabethical order
+ 
+ range(ec_rank$power)
+ #range_ec_GPG <- range(ec_rank$dom_ec)
+
+ 
+  treelayout <- layout_as_tree(gdf)  #V1=x, V2=y
+  treelayout
+
+  # change per bin
+  ## change y axis to represent highest ranking on top of the netwwork
+  ec_lay <- cbind(treelayout, power_plot$power) # observed ec rank 
+  ec_lay<-ec_lay[,-2] # delete column 2
+
+  ## change x axis to provide jitter of nodes
+  #jitter<- c(0,-4,-5,1,2,3,0.5,3.5,-1.5,-3,-4,5,1.5,-2,2.5,5,-3.5,-1,-2.5,4.5,4)
+  #jitter1<- c(0,2,0.5,3,5,4,2,3,4,-4,-1,-3,-4,-5,0,-3,-2,1,-2) # diamond shape
+  jitter19<- c(0,2,0.5,-3,-2,4,2.5,-4,3.5,-1,4.5,3,-4,-5,0,-3,5,1,-2.5)
+  ec_lay <- cbind(jitter19, ec_lay)
+  ec_lay<-ec_lay[,-2] # delete column 2
+  #colnames(ec_lay) <- c("V1", "V2")
+
+  
+## set edge color
+E(gdf)$rule <- as.character(bin.data$rule)
+# unique(bin.data$color)
+#E(gdf)$rule <- adjustcolor(as.character(bin.data$color),alpha=.6)
+
+## add vertex/node attribute
+V(gdf)$name <- power_plot$id
+V(gdf)$dom <- power_plot$power # now we have to reverse y-axis
+V(gdf)$sex <- power_plot$sex
+
+## set node color  
+# all green during removal period focals
+V(gdf)$fill <- c(alpha("#b8d79c", 1)) # all birds green
+
+# highlight focal; "#1f78b4" for BBB; "#33a02c" for GPG; "#ff7f00" for OPP
+#V(gdf)$fill<- c( alpha("#b8d79c", 1), "#1f78b4")[1+(V(gdf)$name=="BBB")]
+#V(gdf)$fill<- c(alpha("#b8d79c", 1), "#6a51a3")[1+(V(gdf)$name=="GPG")]  # "#6a51a3" -> PURPLE & "#33a02c" -> DARK GREEN
+#V(gdf)$fill<- c( alpha("#b8d79c", 1), "#ff7f00")[1+(V(gdf)$name=="OPP")] # "#ff7f00" -> orange & 
+
+
+ # plot graph
+ #library(ggraph); class(gdf); gdf
+
+set.seed(42)
+
+# layout
+layout <- create_layout(gdf, layout=ec_lay)
+head(layout)
+
+
+# plot
+
+p11 <-
+  ggraph(gdf, layout = ec_lay) +
+  
+  # --- edges
+  # geom_edge_link0(aes(edge_width = weight), edge_colour = E(gdf)$color) + # edges going in multiple directions are overlapped
+  geom_edge_fan(aes(edge_width = weight, 
+                    colour=rule,
+                    alpha = 0.6 # ..index..
+                    ), 
+                strength = 0.05) + # 0.05; curved edges. strength > 1 will create wider fans while the reverse will make them more narrow. If there are no parallel edges it behaves like geom_edge_link() and draws a straight line, but if parallel edges exists it will spread them out as arcs with different curvature.
+  #scale_edge_alpha('Edge direction', guide = 'edge_direction') + # have to include ..index..instead of alpha 0.6 to create gradient
+  scale_y_continuous(limits = c(0.82, 1.0), breaks = c(0.85,0.90, 0.95, 1.00) ) +
+  scale_edge_width_continuous(range = c(0.2,3)) + 
+  scale_edge_colour_manual(values = c("#f03b20", "#2c7fb8")) +
+  
+  # --- nodes
+  geom_node_point(aes( shape= sex,
+                       fill = as.factor(layout$fill),
+                       color = "white", size=10)) + 
+  # highlight focal; "#1f78b4" for BBB; green("#33a02c") or purple (alpha("#7030A0", 0.6) for GPG; "#ff7f00" for OPP
+  scale_fill_manual(name = "fill",
+                     values=  c( alpha("#b8d79c", 1))) + #c(  "#1f78b4", alpha("#b8d79c", 1)) / alpha("#b8d79c", 1)) /  "#6a51a3" GPG
+  scale_color_manual(values="white") +
+  scale_shape_manual( name = "sex", 
+                      values = c( 21, 23 ), #c( 21, 23 )  19, 17 
+                      labels = c( "female", "male" )) +
+  #geom_node_text(aes(label = layout$name), size=3) + #, , size=2 # bird names
+  
+  # --- layout
+  #scale_size_continuous(range = c(1,6))+
+  theme_graph()+ 
+  labs(y="Power score" ) +
+  ggtitle(paste("bin",run.code, sep=" ")) +
+  theme(legend.position = "none", #"bottom"
+        text=element_text(size=12),
+        axis.line.y = element_line(),
+        axis.text.y = element_text(),
+        axis.title.y = element_text(),
+        axis.ticks.y = element_line())  
+
+ p11
+
+ ggsave(paste0("./figures/aggnwXbin_bin",run.code,"_3.5x3.pdf"), 
+        width = 3.5, height = 3,
+       device = cairo_pdf,
+       plot=p) #device = cairo_pdf,
+
+ ggsave(paste0("./figures/aggnwXbin_bin",run.code,".pdf"), 
+       device = cairo_pdf,
+       plot=p) 
+#dev.off()
+
+
+}
+
+
+
+```
+
+
+
+## Network summary
+
+```{r network summaries}
+# make empty data frame to put data in
+summ_network <- data.frame(run.code=character(),
+                      density=numeric(),
+                      total_agg =numeric(),
+                      rulebreakers=numeric(),
+                      rulefollowers=numeric())
+
+  loopby<-sort(unique(attrib_edge$bin))
+#i=1
+  run.code <- loopby[i]
+  print(run.code)
+  
+ # total aggressive events
+ total_agg <- sum(attrib_edge$weight)
+
+ # percent rule breakers and followers of total dyads
+ rulebreakers <- length(attrib_edge$rule[attrib_edge$rule=="breaker"])/length(attrib_edge$actor) *100
+ rulefollowers <- length(attrib_edge$rule[attrib_edge$rule=="follower"])/length(attrib_edge$actor) *100
+ 
+ ## create graph from dataframe
+ gdf <- graph.data.frame(attrib_edge)
+
+  density <-   edge_density(gdf)
+
+  # combine in dataframe
+  pool <- cbind.data.frame(run.code, 
+                         density,
+                         total_agg,
+                         rulebreakers,
+                         rulefollowers)
+
+  summ_network <-rbind(summ_network, pool )
+ 
+  #summ_network1 <- summ_network
+  #summ_network2 <- summ_network
+  #summ_network3 <- summ_network
+  #summ_network4 <- summ_network
+  #summ_network5 <- summ_network
+  #summ_network6 <- summ_network
+  #summ_network7 <- summ_network
+  #summ_network8 <- summ_network
+  #summ_network9 <- summ_network
+  #summ_network10 <- summ_network
+  #summ_network11 <- summ_network
+  #summ_network12 <- summ_network
+
+# combine network summaries
+summ_network <- bind_rows(summ_network1,
+                          summ_network2,
+                          summ_network3,
+                          summ_network4,
+                          summ_network5,
+                          summ_network6,
+                          summ_network7,
+                          summ_network8,
+                          summ_network9,
+                          summ_network10,
+                          summ_network11,
+                          summ_network12)
+summ_network <- summ_network %>%
+  drop_na()
+
+write.csv(summ_network, "output/network_summaries.csv")
+
+```
+
+```{r}
+summ_network <- read.csv("output/network_summaries.csv") %>%
+  dplyr::select(-X) %>%
+  rename(period=run.code)
+
+glimpse(summ_network)
+write.csv(summ_network, "output/network_summaries_table.csv")
+
+#summarize rules
+mean(summ_network$rulefollowers)
+sd(summ_network$rulefollowers)
+
+mean(summ_network$rulebreakers)
+sd(summ_network$rulebreakers)
+```
+
+
+
+
+## Mantel correlations
+for aggression matrices:
+  - before vs after removal
+  - before vs after reintroduction
+
+before vs after removal
+BBB: bin c(1,2)
+GPG: bin c(5,6)
+OPP: bin c(9,10)
+
+before reintroduction vs upon reintroduction 
+BBB: bin  c(3,4) 
+GPG: bin  c(7,8)
+OPP: bin  c(11,12)
+
+```{r correlation}
+
+# CHANGE EACH TIME
+observedXdyad <- dyad.totalaggXbin %>%
+  filter(bin %in% c(11,12)) %>%
+  pivot_wider(c(actor, subject), 
+              names_from = bin, names_prefix = "bin",
+              values_from = n.aggXbin,
+              values_fill = 0) %>%
+  dplyr::rename(before=bin11, after=bin12) # change each time
+  
+head(observedXdyad)
+str(observedXdyad)
+
+# check 
+unique(observedXdyad$actor)
+unique(observedXdyad$subject)
+
+
+## correlation matrix  
+# merge data with full dyad list in case any didn't interact
+observedXdyad.alldyads <- merge(observedXdyad, dyad.list, 
+                           by=c("actor", "subject"), 
+                           all.y=TRUE)
+head(observedXdyad.alldyads)
+str(observedXdyad.alldyads) 
+
+# convert NA to 0's
+observedXdyad.alldyads[is.na(observedXdyad.alldyads)] <- 0
+
+#check
+head(observedXdyad.alldyads)
+length(observedXdyad.alldyads$dyadID) # with 20 birds, we should have 380 dyads total
+
+# before matrix
+  obs.behavior1.mx <- reshape2::dcast(observedXdyad.alldyads, actor~subject, value.var="before") #head(ref.behavior1.mx)
+  obs.behavior1.mx[is.na(obs.behavior1.mx)] <- 0
+  obs.behavior1.mx <- matrix.please(obs.behavior1.mx)
+  
+  # after matrix
+  obs.behavior2.mx <- reshape2::dcast(observedXdyad.alldyads, actor~subject, value.var="after") #head(ref.behavior2.mx)
+  obs.behavior2.mx[is.na(obs.behavior2.mx)] <- 0
+  obs.behavior2.mx <- matrix.please(obs.behavior2.mx)
+  
+  # Mantel test
+  #mantel.test(obs.behavior1.mx, obs.behavior2.mx) # ape package
+  obs.cor.result <- mantel(obs.behavior1.mx, obs.behavior2.mx, method = "spearman") # vegan package
+  obs.cor.matrix <- obs.cor.result$statistic
+obs.cor.result$statistic
+obs.cor.result$signif
+```
+
+before vs after removal
+BBB: bin c(1,2) -> mantel = 0.69, p = 0.001
+GPG: bin c(5,6) -> mantel = 0.65, p = 0.001
+OPP: bin c(9,10) -> mantel = 0.66, p = 0.001
+
+before reintroduction vs upon reintroduction 
+BBB: bin  c(3,4) -> mantel = 0.66, p = 0.001
+GPG: bin  c(7,8) -> mantel = 0.51, p = 0.001
+OPP: bin  c(11,12) -> mantel = 0.71, p = 0.001
+
+
+
+# 2022 Aggression networks
+
+join dominance scores to dyad aggression dataframe for both actor and subject
+
+Structure of hierarchy:
+- % of fights rule breakers vs rule followers
+
+plot aggression network by dominance rank on y-axis and jitter on x-axis. One convenient way to adjust node coordinates is to plot with tkplot first, handtune the placement of the vertices, query the coordinates by the tk_coords function and use them with plot to plot the graph to any R device.
+
+## bin selection
+
+```{r}
+
+bin_10birds <- c(3,4,7,8,11,12,15,16, 19,20,23,24)  # 
+bin_11birds <- c(2,5,6, 9,10, 13,14, 17,18, 21,22, 25)
+bin_reintro22_top <- c(5, 17, 25)
+bin_reintro22_low <- c(9, 13, 21)
+
+# per trial and period separate -> differently colored focals compared to the rest of the birds
+bintrial1_focal <- c(2,5)
+bintrial1_nofocal <- c(3,4)
+bintrial2_focal <- c(6,9)
+bintrial2_nofocal <- c(7,8)
+bintrial3_focal <- c(10,13)
+bintrial3_nofocal <- c(11,12)
+bintrial4_focal <- c(14,17)
+bintrial4_nofocal <- c(15,16)
+bintrial5_focal <- c(18,21)
+bintrial5_nofocal <- c(19,20)
+bintrial6_focal <- c(22,25)
+bintrial6_nofocal <- c(23,24)
+
+```
+
+## per social group
+
+```{r}
+
+```
+
+
+## create edge list
+change bin each time as the loop didn't work
+```{r}
+# check data
+glimpse(aggXbin22)
+
+aggXbin22$bin <- as.factor(aggXbin22$bin)
+
+# combine dom_ec and rank to edge  dataframe
+attrib_edge <- aggXbin22 %>%
+  #filter(bin %in% bintrial2_nofocal) %>%   # change 
+  filter(bin==2) %>%
+  #slice(rep(seq_len(n()), n.aggXbin)) %>%  # transform to edge list
+  #mutate(weight = 1) %>%
+  dplyr::rename(id=actor, weight=n.aggXbin) %>% 
+  left_join(power22, by=c("id", "bin")) %>% 
+  dplyr::rename(actor=id, actor_power=power, actor_domec=dom_ec, actor_rank=rank) %>%
+  dplyr::rename(id=subject) %>%
+  left_join(power22, by=c("id", "bin")) %>%
+  dplyr::rename(subject=id, subject_power=power, subject_domec=dom_ec, subject_rank=rank) %>%
+  mutate(rule = if_else(actor_rank < subject_rank, "follower", "breaker"),# low dom_ec/rank = higher ranking
+         color= if_else(rule=="breaker", "#f03b20","#2c7fb8")) %>% #"#dc8580", "#83b2d0" -> too dull
+  arrange(-actor_power) 
+glimpse(attrib_edge)
+```
+
+## visualize aggression networks
+
+### network graph (20 birds)
+
+
+First, for all 20 birds, where focals are highlighted
+bin20birds <- c(1,4,5,8,9,12)
+
+```{r aggression network 20 birds (highlight focal)}
+  # choose bin
+  run.code<-sort(unique(attrib_edge$bin))
+  run.code
+  
+  # create graph from dataframe
+ gdf <- graph.data.frame(attrib_edge)
+ 
+  # create layout
+ ## add rank 
+ power_plot <- ec_rank %>% 
+  filter(bin==run.code) %>%
+  left_join(attrib_node) %>%
+  dplyr::select(id, sex, power, rank) %>%
+  arrange(-power) # changed to descending order rank instead of alphabethical order
+ 
+ range(ec_rank$power)
+ #range_ec_GPG <- range(ec_rank$dom_ec)
+
+  treelayout <- layout_as_tree(gdf)  #V1=x, V2=y
+  treelayout
+
+  # change per bin
+  ## change y axis to represent highest ranking on top of the netwwork
+  ec_lay <- cbind(treelayout, power_plot$power) # observed ec rank 
+  ec_lay<-ec_lay[,-2] # delete column 2
+
+  ## change x axis to provide jitter of nodes
+  #jitter<- c(0,-4,-5,1,2,3,0.5,3.5,-1.5,-3,-4,5,1.5,-2,2.5,5,-3.5,-1,-2.5,4.5,4)
+  jitter20<- c(0,2,0.5,-3,-2,4,2.5,-4,3.5,-1,4.5,3,-4,-5,-0.5,-3,5,1,-2.5, 0) # diamond shape
+  ec_lay <- cbind(jitter20, ec_lay)
+  ec_lay<-ec_lay[,-2] # delete column 2
+  #colnames(ec_lay) <- c("V1", "V2")
+
+  
+## set edge color
+E(gdf)$rule <- as.character(attrib_edge$rule)
+# unique(bin.data$color)
+#E(gdf)$rule <- adjustcolor(as.character(bin.data$color),alpha=.6)
+
+## add vertex/node attribute
+V(gdf)$name <- power_plot$id
+V(gdf)$dom <- power_plot$power # now we have to reverse y-axis
+V(gdf)$sex <- power_plot$sex
+
+## set node color  
+# all green during removal period focals
+#V(gdf)$fill <- c(alpha("#b8d79c", 1)) # all birds green
+
+# highlight focal; "#1f78b4" for BBB; "#33a02c" for GPG; "#ff7f00" for OPP
+#V(gdf)$fill<- c( alpha("#b8d79c", 1), "#1f78b4")[1+(V(gdf)$name=="BBB")]
+V(gdf)$fill<- c(alpha("#b8d79c", 1), "#6a51a3")[1+(V(gdf)$name=="GPG")]  # "#6a51a3" -> PURPLE & "#33a02c" -> DARK GREEN
+#V(gdf)$fill<- c( alpha("#b8d79c", 1), "#ff7f00")[1+(V(gdf)$name=="OPP")] # "#ff7f00" -> orange & 
+
+
+ # plot graph
+ #library(ggraph); class(gdf); gdf
+
+set.seed(42)
+
+# layout
+layout <- create_layout(gdf, layout=ec_lay)
+head(layout)
+
+
+# plot
+
+p8 <-
+  ggraph(gdf, layout = ec_lay) +
+  
+  # --- edges
+  # geom_edge_link0(aes(edge_width = weight), edge_colour = E(gdf)$color) + # edges going in multiple directions are overlapped
+  geom_edge_fan(aes(edge_width = weight, 
+                    colour=rule,
+                    alpha = 0.6 # ..index..
+                    ), 
+                strength = 0.05) + # 0.05; curved edges. strength > 1 will create wider fans while the reverse will make them more narrow. If there are no parallel edges it behaves like geom_edge_link() and draws a straight line, but if parallel edges exists it will spread them out as arcs with different curvature.
+  #scale_edge_alpha('Edge direction', guide = 'edge_direction') + # have to include ..index..instead of alpha 0.6 to create gradient
+  scale_y_continuous(limits = c(0.82, 1.0), breaks = c(0.85,0.90, 0.95, 1.00) ) +
+  scale_edge_width_continuous(range = c(0.2,3)) + 
+  scale_edge_colour_manual(values = c("#f03b20", "#2c7fb8")) +
+  
+  # --- nodes
+  geom_node_point(aes( shape= sex,
+                       fill = as.factor(layout$fill),
+                       color = "white", size=10)) + 
+  # highlight focal; "#1f78b4" for BBB; green("#33a02c") or purple (alpha("#7030A0", 0.6) for GPG; "#ff7f00" for OPP
+  scale_fill_manual(name = "fill",
+                     values=  c("#6a51a3", alpha("#b8d79c", 1))) + #c(  "#1f78b4", alpha("#b8d79c", 1)) /  "#6a51a3" GPG / alpha("#b8d79c", 1), "#ff7f00") OPP
+  scale_color_manual(values="white") +
+  scale_shape_manual( name = "sex", 
+                      values = c( 21, 23 ), #c( 21, 23 )  19, 17 
+                      labels = c( "female", "male" )) +
+  #geom_node_text(aes(label = layout$name), size=3) + #, , size=2 # bird names
+  
+  # --- layout
+  #scale_size_continuous(range = c(1,6))+
+  theme_graph()+ 
+  labs(y="Power score" ) +
+  ggtitle(paste("bin",run.code, sep=" ")) +
+  theme(legend.position = "none", #"bottom"
+        text=element_text(size=12),
+        axis.line.y = element_line(),
+        axis.text.y = element_text(),
+        axis.title.y = element_text(),
+        axis.ticks.y = element_line())  
+
+ p8
+
+ #ggsave(paste0("./figures/aggnwXbin_bin",run.code,"_3x3.pdf"), 
+#        width = 3, height = 3,
+#       device = cairo_pdf,
+#       plot=p) #device = cairo_pdf,
+
+# ggsave(paste0("./figures/aggnwXbin_bin",run.code,".pdf"), 
+#       device = cairo_pdf,
+#       plot=p) 
+#dev.off()
+
+
+#}
+
+ 
+ nw_before_removal <- ggarrange(p1, p5, p9,  
+          nrow = 3, ncol = 1)
+  nw_before_removal
+ ggsave( "./figures/nw_before_removal.pdf",
+        width = 3.5, height = 9,
+        device = cairo_pdf)
+
+
+nw_after_reintro <- ggarrange(p4, p8, p12, 
+                               nrow = 3, ncol = 1)
+nw_after_reintro
+ggsave( "./figures/nw_after==reintro.pdf",
+        width = 3.5, height = 9,
+        device = cairo_pdf)
+```
+
+### network graph (19 birds)
+Second, for 19 birds, where focals are removed; this affects the layout. 
+bin19birds <- c(2,3,6,7,10,11) 
+
+```{r aggression network 19 birds (removal period)}
+
+# combine dom_ec and rank to edge  dataframe
+attrib_edge <- dyad.totalaggXbin %>%
+  dplyr::select(-X) %>%
+  #filter(bin %in% bintrial2_nofocal) %>%   # change 
+  filter(bin %in% c(2,3,6,7,10,11) ) %>%
+  #slice(rep(seq_len(n()), n.aggXbin)) %>%  # transform to edge list
+  #mutate(weight = 1) %>%
+  dplyr::rename(id=actor, weight=n.aggXbin) %>% 
+  left_join(ec_rank, by=c("id", "bin")) %>% 
+  dplyr::rename(actor=id, actor_power=power, actor_domec=dom_ec, actor_rank=rank) %>%
+  dplyr::rename(id=subject) %>%
+  left_join(ec_rank, by=c("id", "bin")) %>%
+  dplyr::rename(subject=id, subject_power=power, subject_domec=dom_ec, subject_rank=rank) %>%
+  mutate(rule = if_else(actor_rank < subject_rank, "follower", "breaker"),# low dom_ec/rank = higher ranking
+         color= if_else(rule=="breaker", "#f03b20","#2c7fb8")) %>% #"#dc8580", "#83b2d0" -> too dull
+  arrange(-actor_power) 
+glimpse(attrib_edge)
+
+  
+loopby<-sort(unique(attrib_edge$bin))
+
+for(i in seq_along(sort(unique(attrib_edge$bin)))){
+  run.code <- 11
+  print(run.code)
+  
+# SUBSET data by bin
+ bin.data <- attrib_edge %>% 
+   filter( bin==run.code) %>% #run.code
+   arrange(-actor_power) 
+
+  ## create graph from dataframe
+ gdf <- graph.data.frame(bin.data)
+ 
+  # create layout
+ ## add rank 
+ power_plot <- ec_rank %>% 
+  filter(bin==run.code) %>%
+  left_join(attrib_node) %>%
+  dplyr::select(id, sex, power, rank) %>%
+  arrange(-power) # changed to descending order rank instead of alphabethical order
+ 
+ range(ec_rank$power)
+ #range_ec_GPG <- range(ec_rank$dom_ec)
+
+ 
+  treelayout <- layout_as_tree(gdf)  #V1=x, V2=y
+  treelayout
+
+  # change per bin
+  ## change y axis to represent highest ranking on top of the netwwork
+  ec_lay <- cbind(treelayout, power_plot$power) # observed ec rank 
+  ec_lay<-ec_lay[,-2] # delete column 2
+
+  ## change x axis to provide jitter of nodes
+  #jitter<- c(0,-4,-5,1,2,3,0.5,3.5,-1.5,-3,-4,5,1.5,-2,2.5,5,-3.5,-1,-2.5,4.5,4)
+  #jitter1<- c(0,2,0.5,3,5,4,2,3,4,-4,-1,-3,-4,-5,0,-3,-2,1,-2) # diamond shape
+  jitter19<- c(0,2,0.5,-3,-2,4,2.5,-4,3.5,-1,4.5,3,-4,-5,0,-3,5,1,-2.5)
+  ec_lay <- cbind(jitter19, ec_lay)
+  ec_lay<-ec_lay[,-2] # delete column 2
+  #colnames(ec_lay) <- c("V1", "V2")
+
+  
+## set edge color
+E(gdf)$rule <- as.character(bin.data$rule)
+# unique(bin.data$color)
+#E(gdf)$rule <- adjustcolor(as.character(bin.data$color),alpha=.6)
+
+## add vertex/node attribute
+V(gdf)$name <- power_plot$id
+V(gdf)$dom <- power_plot$power # now we have to reverse y-axis
+V(gdf)$sex <- power_plot$sex
+
+## set node color  
+# all green during removal period focals
+V(gdf)$fill <- c(alpha("#b8d79c", 1)) # all birds green
+
+# highlight focal; "#1f78b4" for BBB; "#33a02c" for GPG; "#ff7f00" for OPP
+#V(gdf)$fill<- c( alpha("#b8d79c", 1), "#1f78b4")[1+(V(gdf)$name=="BBB")]
+#V(gdf)$fill<- c(alpha("#b8d79c", 1), "#6a51a3")[1+(V(gdf)$name=="GPG")]  # "#6a51a3" -> PURPLE & "#33a02c" -> DARK GREEN
+#V(gdf)$fill<- c( alpha("#b8d79c", 1), "#ff7f00")[1+(V(gdf)$name=="OPP")] # "#ff7f00" -> orange & 
+
+
+ # plot graph
+ #library(ggraph); class(gdf); gdf
+
+set.seed(42)
+
+# layout
+layout <- create_layout(gdf, layout=ec_lay)
+head(layout)
+
+
+# plot
+
+p11 <-
+  ggraph(gdf, layout = ec_lay) +
+  
+  # --- edges
+  # geom_edge_link0(aes(edge_width = weight), edge_colour = E(gdf)$color) + # edges going in multiple directions are overlapped
+  geom_edge_fan(aes(edge_width = weight, 
+                    colour=rule,
+                    alpha = 0.6 # ..index..
+                    ), 
+                strength = 0.05) + # 0.05; curved edges. strength > 1 will create wider fans while the reverse will make them more narrow. If there are no parallel edges it behaves like geom_edge_link() and draws a straight line, but if parallel edges exists it will spread them out as arcs with different curvature.
+  #scale_edge_alpha('Edge direction', guide = 'edge_direction') + # have to include ..index..instead of alpha 0.6 to create gradient
+  scale_y_continuous(limits = c(0.82, 1.0), breaks = c(0.85,0.90, 0.95, 1.00) ) +
+  scale_edge_width_continuous(range = c(0.2,3)) + 
+  scale_edge_colour_manual(values = c("#f03b20", "#2c7fb8")) +
+  
+  # --- nodes
+  geom_node_point(aes( shape= sex,
+                       fill = as.factor(layout$fill),
+                       color = "white", size=10)) + 
+  # highlight focal; "#1f78b4" for BBB; green("#33a02c") or purple (alpha("#7030A0", 0.6) for GPG; "#ff7f00" for OPP
+  scale_fill_manual(name = "fill",
+                     values=  c( alpha("#b8d79c", 1))) + #c(  "#1f78b4", alpha("#b8d79c", 1)) / alpha("#b8d79c", 1)) /  "#6a51a3" GPG
+  scale_color_manual(values="white") +
+  scale_shape_manual( name = "sex", 
+                      values = c( 21, 23 ), #c( 21, 23 )  19, 17 
+                      labels = c( "female", "male" )) +
+  #geom_node_text(aes(label = layout$name), size=3) + #, , size=2 # bird names
+  
+  # --- layout
+  #scale_size_continuous(range = c(1,6))+
+  theme_graph()+ 
+  labs(y="Power score" ) +
+  ggtitle(paste("bin",run.code, sep=" ")) +
+  theme(legend.position = "none", #"bottom"
+        text=element_text(size=12),
+        axis.line.y = element_line(),
+        axis.text.y = element_text(),
+        axis.title.y = element_text(),
+        axis.ticks.y = element_line())  
+
+ p11
+
+ ggsave(paste0("./figures/aggnwXbin_bin",run.code,"_3.5x3.pdf"), 
+        width = 3.5, height = 3,
+       device = cairo_pdf,
+       plot=p) #device = cairo_pdf,
+
+ ggsave(paste0("./figures/aggnwXbin_bin",run.code,".pdf"), 
+       device = cairo_pdf,
+       plot=p) 
+#dev.off()
+
+
+}
+
+
+
+```
+
+
+
+## Network summary
+
+```{r network summaries}
+# make empty data frame to put data in
+summ_network <- data.frame(run.code=character(),
+                      density=numeric(),
+                      total_agg =numeric(),
+                      rulebreakers=numeric(),
+                      rulefollowers=numeric())
+
+  loopby<-sort(unique(attrib_edge$bin))
+#i=1
+  run.code <- loopby[i]
+  print(run.code)
+  
+ # total aggressive events
+ total_agg <- sum(attrib_edge$weight)
+
+ # percent rule breakers and followers of total dyads
+ rulebreakers <- length(attrib_edge$rule[attrib_edge$rule=="breaker"])/length(attrib_edge$actor) *100
+ rulefollowers <- length(attrib_edge$rule[attrib_edge$rule=="follower"])/length(attrib_edge$actor) *100
+ 
+ ## create graph from dataframe
+ gdf <- graph.data.frame(attrib_edge)
+
+  density <-   edge_density(gdf)
+
+  # combine in dataframe
+  pool <- cbind.data.frame(run.code, 
+                         density,
+                         total_agg,
+                         rulebreakers,
+                         rulefollowers)
+
+  summ_network <-rbind(summ_network, pool )
+ 
+  #summ_network1 <- summ_network
+  #summ_network2 <- summ_network
+  #summ_network3 <- summ_network
+  #summ_network4 <- summ_network
+  #summ_network5 <- summ_network
+  #summ_network6 <- summ_network
+  #summ_network7 <- summ_network
+  #summ_network8 <- summ_network
+  #summ_network9 <- summ_network
+  #summ_network10 <- summ_network
+  #summ_network11 <- summ_network
+  #summ_network12 <- summ_network
+
+# combine network summaries
+summ_network <- bind_rows(summ_network1,
+                          summ_network2,
+                          summ_network3,
+                          summ_network4,
+                          summ_network5,
+                          summ_network6,
+                          summ_network7,
+                          summ_network8,
+                          summ_network9,
+                          summ_network10,
+                          summ_network11,
+                          summ_network12)
+summ_network <- summ_network %>%
+  drop_na()
+
+write.csv(summ_network, "output/network_summaries.csv")
+
+```
+
+```{r}
+summ_network <- read.csv("output/network_summaries.csv") %>%
+  dplyr::select(-X) %>%
+  rename(period=run.code)
+
+glimpse(summ_network)
+write.csv(summ_network, "output/network_summaries_table.csv")
+
+#summarize rules
+mean(summ_network$rulefollowers)
+sd(summ_network$rulefollowers)
+
+mean(summ_network$rulebreakers)
+sd(summ_network$rulebreakers)
+```
+
+
+
+
+## Mantel correlations
+for aggression matrices:
+  - before vs after removal
+  - before vs after reintroduction
+
+before vs after removal
+BBB: bin c(1,2)
+GPG: bin c(5,6)
+OPP: bin c(9,10)
+
+before reintroduction vs upon reintroduction 
+BBB: bin  c(3,4) 
+GPG: bin  c(7,8)
+OPP: bin  c(11,12)
+
+```{r correlation}
+
+# CHANGE EACH TIME
+observedXdyad <- dyad.totalaggXbin %>%
+  filter(bin %in% c(11,12)) %>%
+  pivot_wider(c(actor, subject), 
+              names_from = bin, names_prefix = "bin",
+              values_from = n.aggXbin,
+              values_fill = 0) %>%
+  dplyr::rename(before=bin11, after=bin12) # change each time
+  
+head(observedXdyad)
+str(observedXdyad)
+
+# check 
+unique(observedXdyad$actor)
+unique(observedXdyad$subject)
+
+
+## correlation matrix  
+# merge data with full dyad list in case any didn't interact
+observedXdyad.alldyads <- merge(observedXdyad, dyad.list, 
+                           by=c("actor", "subject"), 
+                           all.y=TRUE)
+head(observedXdyad.alldyads)
+str(observedXdyad.alldyads) 
+
+# convert NA to 0's
+observedXdyad.alldyads[is.na(observedXdyad.alldyads)] <- 0
+
+#check
+head(observedXdyad.alldyads)
+length(observedXdyad.alldyads$dyadID) # with 20 birds, we should have 380 dyads total
+
+# before matrix
+  obs.behavior1.mx <- reshape2::dcast(observedXdyad.alldyads, actor~subject, value.var="before") #head(ref.behavior1.mx)
+  obs.behavior1.mx[is.na(obs.behavior1.mx)] <- 0
+  obs.behavior1.mx <- matrix.please(obs.behavior1.mx)
+  
+  # after matrix
+  obs.behavior2.mx <- reshape2::dcast(observedXdyad.alldyads, actor~subject, value.var="after") #head(ref.behavior2.mx)
+  obs.behavior2.mx[is.na(obs.behavior2.mx)] <- 0
+  obs.behavior2.mx <- matrix.please(obs.behavior2.mx)
+  
+  # Mantel test
+  #mantel.test(obs.behavior1.mx, obs.behavior2.mx) # ape package
+  obs.cor.result <- mantel(obs.behavior1.mx, obs.behavior2.mx, method = "spearman") # vegan package
+  obs.cor.matrix <- obs.cor.result$statistic
+obs.cor.result$statistic
+obs.cor.result$signif
+```
+
+before vs after removal
+BBB: bin c(1,2) -> mantel = 0.69, p = 0.001
+GPG: bin c(5,6) -> mantel = 0.65, p = 0.001
+OPP: bin c(9,10) -> mantel = 0.66, p = 0.001
+
+before reintroduction vs upon reintroduction 
+BBB: bin  c(3,4) -> mantel = 0.66, p = 0.001
+GPG: bin  c(7,8) -> mantel = 0.51, p = 0.001
+OPP: bin  c(11,12) -> mantel = 0.71, p = 0.001

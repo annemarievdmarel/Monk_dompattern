@@ -803,6 +803,7 @@ max(summ_ag_group2$ag_bird_obs)
 # sd.ag.rate <- sd(summ_ag_group2$ag_person_obs)
 # min(summ_ag_group2$ag_person_obs)
 # max(summ_ag_group2$ag_person_obs)
+
 ```
 
 #### plot aggression rate
@@ -826,11 +827,11 @@ plot_aggression_22group2 <-  summ_ag_group2 %>%
   theme_classic() +
   theme(legend.position="bottom",
          text = element_text(size=14),
-         axis.text = element_text(size=12),
-         axis.title.x = element_blank()) +
+         axis.text = element_text(size=12)) +
+         #axis.title.x = element_blank()) +
    #     axis.text.x = element_blank(),
     #    axis.ticks.x=element_line()) +
-  labs(y="aggression rate") + #, title = "Amount of aggression controlled for group size and hours observed"
+  labs(y="aggression rate", x="social dominance pattern assessment periods") + #, title = "Amount of aggression controlled for group size and hours observed"
   
    # # add lines to highlight removals and reintroductions
   geom_vline(xintercept = 2.5, linetype="dashed", color =  alpha("black", 0.6)) + # removal
@@ -850,6 +851,15 @@ plot_aggression_22group2 <-  summ_ag_group2 %>%
  
 plot_aggression_22group2 
 ```
+### combine summ aggression
+```{r}
+
+sum_ag22 <- bind_rows(summ_ag_group1, summ_ag_group2) %>% 
+  mutate(group= recode(group, '1'="2022-1", '2'="2022-2"))
+write.csv(sum_ag22, "output/summ_agg2022.csv")
+```
+
+
 
 ## Social dominance pattern
 

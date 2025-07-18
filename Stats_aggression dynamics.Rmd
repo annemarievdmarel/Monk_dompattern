@@ -1,0 +1,3385 @@
+---
+title: "directed aggression"
+author: "Annemarie van der Marel"
+date: "2023-10-20"
+output: html_document
+---
+
+# get data ready
+## load libraries and data
+```{r setup, include=FALSE}
+
+library(tidyverse)        # ggplot, dplyr, %>%, and friends
+library(betareg)          # Run beta regression models
+library(gghalves)         # Special half geoms
+library(ggbump)           # create bump plot
+library("glmmTMB")        # glmm vor beta distribution
+library(ggpubr)           # arrange plots etc
+
+# aggression X dyad X bin X group
+aggXbin20 <- read.csv("./output/dyad.aggXbin2020.csv")%>%
+  dplyr::select(-X)
+
+aggXbin21a <- read.csv("./output/dyad.aggXbin.start21.csv") %>%
+  dplyr::select(-X)
+
+aggXbin21 <- read.csv("./output/dyad.aggXbin.socialexp21.csv") %>%
+  dplyr::select(-X)
+
+aggXbin22 <- read.csv("./output/dyad.aggXbin2022.csv") %>%
+  dplyr::select(-X)
+
+# power scores 
+power21 <- read.csv("./output/MOPA_power score_2021.csv") %>% 
+  rename(period=bin)
+power22 <- read.csv("./output/powerXbin2022.csv")
+
+bins21 <- read.csv("./data/bins2021.csv")
+
+# focals 2022
+focals22 <- read.csv("./data/2022_focal_birds.csv") 
+```
+
+##bins
+remove = bin before removal to know who the focal bird is. 
+```{r}
+power21 <- power21 %>% left_join(bins21) %>% select(-period)
+bin_remove21 <- c(11, 15, 19  )
+bin_reintro21 <- c(14, 18, 22)
+
+
+bin_remove22 <- c(2, 6, 10, 14, 18, 22)
+bin_reintro22 <- c(5, 9, 13, 17, 21, 25)
+bin_reintro22_top <- c(5, 17, 25)
+bin_reintro22_low <- c(9, 13, 21)
+```
+
+## Bird list
+
+change for each perturbation as different birds are removed
+
+```{r}
+
+# bird list 2020
+birdlist20 <- aggXbin20 %>% 
+  group_by(actor) %>% 
+  slice(1) %>% 
+  dplyr::select(actor) %>% 
+  rename(id=actor)
+
+
+# bird list 2022
+birdIDs_capture<- read.csv("./data/2022_experimental birds.csv") 
+
+# birdIDs_capture %>%
+#   group_by(date) %>%
+#   tally() # 21 birds
+
+birdIDs <- birdIDs_capture %>% 
+  dplyr::select(experimental_group_2022, band_id_2022, mark_id_2022) %>%
+  filter(!mark_id_2022 %in% c("NA", "")) %>%
+  rename(group=experimental_group_2022,
+         bandID=band_id_2022, 
+         markID=mark_id_2022)
+
+
+# birds used in 2021 
+birds21 <-  read.csv("./data/2021_birdIDs.csv") 
+birds21 <- birds21 %>%
+  filter(mark_id1!="") %>%
+  dplyr::select(band_id) %>%
+  rename(bandID=band_id)
+# how many non-experimental birds from 2021 used in 2022
+nonexp_birds <- birdIDs %>%
+  anti_join(birds21v) # 8 birds that were caught in 2021 but not used in 2021 and are used in 2022
+total_experimental_birds <- 21 + 22 + 8
+
+
+##list of all valid color combinations
+
+# change each time
+bird.list <- sort(unique(birdIDs$bandID)) # change for social period
+length(bird.list)
+bird.list
+
+# list of all possible dyads
+dyad.list <- expand.grid(bird.list, bird.list) #head(dyad.list)
+names(dyad.list) <- c("actor", "subject")
+dyad.list <- subset(dyad.list, actor!=subject)
+dyad.list$dyadID <- paste(dyad.list$actor, dyad.list$subject, sep="-")
+
+```
+
+## colors
+
+```{r}
+n_distinct(birds21$bandID)
+
+# 26 qualitatively different colors from Dave Keenan
+colors26 <-  c("#00B7FF", "#00FFFF", "#826400", "#580041", "#FF00FF", "#00FF00",
+               "#C500FF", "#B4FFD7", "#FFCA00", "#969600", "#B4A2FF", "#C20078", "#0000C1",
+               "#FF8B00", "#ACC9FF", "#666666", "#FF0000", "#CCCCCC", "#009E8F", "#D7A870", 
+               "#8200FF", "#960000", "#BBFF00", "#FFFF00", "#006F00", "#1f78b4", "#8E0152") # "#1f78b4", "#8E0152" are the extr 2 colors
+
+set.seed(42)
+colorXbird20 <-  sample(colors26, n_distinct(birdlist20$id))
+colorXbird <-  sample(colors26, n_distinct(birds21$bandID))
+colorXbird22 <-  sample(colors26, n_distinct(birdIDs$bandID))
+
+birdIDs_color20<- bind_cols(birdlist20, colorXbird20) %>% 
+  rename(unicol=...2)
+
+birdIDs_all <- bind_cols(birds21, colorXbird) 
+birdIDs_color <- birdIDs_all %>%
+  rename(unicol=...2)
+
+birdIDs_color22<- bind_cols(birdIDs, colorXbird22) %>% 
+  rename(unicol=...4,
+         id=markID)
+
+```
+# Plot dominance patterns
+
+```{r dompattern 2020}
+
+strategies <- read.csv("output/summ_agg2020.csv")%>%
+  dplyr::select(bin, dominance_pattern) %>%
+  filter(bin!=4) %>%
+  add_row( bin=21, dominance_pattern="downward heuristic") %>%
+  add_row( bin=25, dominance_pattern="close competitor") %>%
+  mutate(rank = if_else(dominance_pattern=="downward heuristic", 1, 
+                        ifelse(dominance_pattern=="bullying", 2, 3))) %>% 
+  mutate(use = if_else(dominance_pattern=="downward heuristic", "A", 
+                        ifelse(dominance_pattern=="bullying", "B", "C"))) %>% 
+  mutate(observed_pattern = factor(dominance_pattern, 
+            levels =c("bullying", "close competitor","downward heuristic"),
+            labels =c("Bullying", "Close competitor","Downward heuristic")))
+
+
+# dominance patterns long perturbation period
+plot_strategies_2020 <- ggplot(strategies, 
+                               aes(bin, observed_pattern)) +
+  geom_point(size = 6, shape = 21, colour = "black", aes(fill = observed_pattern )) +
+  labs(title = "", y="", x="social dominance pattern assessment periods") + #title = "social dominance pattern"
+  scale_fill_manual(values = c( "#0000FF","#C00000" , "#7F7F7F")) +
+  theme_classic() + #theme_minimal() 
+  theme(#axis.title = element_text(size=12, angle = 45), #element_blank()
+        #axis.text.y =element_text(size=12, angle = 25), 
+        legend.position = "none",
+         text = element_text(size =14),
+        axis.text = element_text(size=12),
+        plot.margin = unit(c(1, 1, 0.5, 1), "cm")) +
+  
+  scale_x_continuous(limits = c(1, 3),
+                     breaks= c(1,2,3)) +
+  
+  # add lines to highlight removals and reintroductions
+ # geom_vline(xintercept = 1.5, linetype="solid", color =  alpha("black", 0.6)) + # nonsocial perturbation
+  geom_vline(xintercept = 3.5, linetype="dashed", color =  alpha("black", 0.6))  # removal
+
+
+plot_strategies_2020
+
+```
+
+```{r plot patterns over time 2021}
+strategies2021 <- read.csv("output/summ_agg2021.csv") %>% 
+  dplyr::select(bin, focus, position, dominance_pattern)
+strategies <- read.csv("output/dompatterns_21exp.csv") %>% 
+  dplyr::select(bin, focus, position, dominance_pattern)
+
+strategies <- strategies2021 %>% 
+  bind_rows(strategies) %>% 
+  dplyr::select(bin, dominance_pattern) %>%
+  #filter(bin!=4) %>%
+  add_row( bin=26, dominance_pattern="bullying") %>%
+  add_row( bin=25, dominance_pattern="close competitor") %>%
+  mutate(rank = if_else(dominance_pattern=="downward heuristic", 1, 
+                        ifelse(dominance_pattern=="bullying", 2, 3))) %>% 
+  mutate(use = if_else(dominance_pattern=="downward heuristic", "A", 
+                        ifelse(dominance_pattern=="bullying", "B", "C"))) %>% 
+  mutate(observed_pattern = factor(dominance_pattern, 
+            levels =c("bullying", "close competitor","downward heuristic"),
+            labels =c("Bullying", "Close competitor","Downward heuristic"))) #unique(dominance_pattern))
+
+
+# dominance patterns long perturbation period
+plot_strategies_summ21 <- ggplot(strategies, 
+                               aes(bin, observed_pattern)) +
+  geom_point(size = 6, shape = 21, colour = "black", aes(fill = observed_pattern )) +
+  labs(title = "", y="", x="social dominance pattern assessment periods") + #title = "social dominance pattern"
+  scale_fill_manual(values = c( "#0000FF","#C00000" , "#7F7F7F")) +
+  theme_classic() + #theme_minimal() 
+  theme(#axis.title = element_text(size=12, angle = 45), #element_blank()
+        #axis.text.y =element_text(size=12, angle = 25), 
+        legend.position = "none",
+        text = element_text(size =14),
+        axis.text = element_text(size=12),
+        plot.margin = unit(c(1, 1, 0.5, 1), "cm")) +
+  
+  scale_x_continuous(limits = c(1, 22),
+                     breaks= c(1:22)) +
+  
+  # add lines to highlight nonexperimental perturbations
+  geom_vline(xintercept = 1.5, linetype="dotted", color =  alpha("black", 0.6)) + # thunderstorm
+  geom_vline(xintercept = 6.5, linetype="dotted", color =  alpha("black", 0.6)) + # removal 2 injured birds
+  geom_vline(xintercept = 7.5, linetype="dotted", color =  alpha("black", 0.6)) + # dominant partner switch
+  
+    # add lines to highlight removals and reintroductions
+  geom_vline(xintercept = 11.5, linetype="dashed", color =  alpha("black", 0.6)) + # removal
+  geom_vline(xintercept = 13.5, linetype="solid", color =  alpha("black", 0.6)) + # reintroduction
+  geom_vline(xintercept = 15.5, linetype="dashed", color =  alpha("black", 0.6)) +
+  geom_vline(xintercept = 17.5, linetype="solid", color =  alpha("black", 0.6)) +
+  geom_vline(xintercept = 19.5, linetype="dashed", color =  alpha("black", 0.6)) +
+  geom_vline(xintercept = 21.5, linetype="solid", color =  alpha("black", 0.6)) 
+  
+
+plot_strategies_summ21
+
+```
+
+
+
+
+```{r plot patterns over time 2022-1}
+dompattern22 <- read.csv("./output/dompatterns2022.csv")
+strategies1 <- dompattern22 %>% 
+  filter(group==1) %>%
+  dplyr::select(bin, dompattern) %>%
+  mutate(observed_pattern = factor(dompattern, 
+            levels =c("bullying", "close competitor","downward heuristic"),
+            labels =c("Bullying", "Close competitor","Downward heuristic")))
+
+
+# dominance patterns long perturbation period
+plot_strategies_group1<- ggplot(strategies1, 
+                               aes(bin, observed_pattern)) +
+  geom_point(size = 6, shape = 21, colour = "black", aes(fill = observed_pattern )) +
+  labs(title = "", y="", x="social dominance pattern assessment periods") + #title = "social dominance pattern"
+  scale_fill_manual(values = c( "#0000FF","#C00000" , "#7F7F7F")) +
+  theme_classic() + #theme_minimal() 
+  theme(#axis.title = element_text(size=12, angle = 45), #element_blank()
+        #axis.text.y =element_text(size=12, angle = 25), 
+        legend.position = "none",
+        text = element_text(size =14),
+        axis.text = element_text(size=12),
+        plot.margin = unit(c(1, 1, 0.5, 1), "cm")) +
+  
+   scale_x_continuous(limits = c(1, 26), # change to 4 with removal period included
+                     breaks= c(1:26)) +
+  
+  
+  # # add lines to highlight removals and reintroductions
+  geom_vline(xintercept = 2.5, linetype="dashed", color =  alpha("black", 0.6)) + # removal
+  geom_vline(xintercept = 4.5, linetype="solid", color =  alpha("black", 0.6)) + # reintroduction
+  geom_vline(xintercept = 6.5, linetype="dashed", color =  alpha("black", 0.6)) +
+  geom_vline(xintercept = 8.5, linetype="solid", color =  alpha("black", 0.6)) +
+  geom_vline(xintercept = 10.5, linetype="dashed", color =  alpha("black", 0.6)) +
+  geom_vline(xintercept = 12.5, linetype="solid", color =  alpha("black", 0.6)) +
+  geom_vline(xintercept = 14.5, linetype="dashed", color =  alpha("black", 0.6)) +
+  geom_vline(xintercept = 16.5, linetype="solid", color =  alpha("black", 0.6)) +
+  geom_vline(xintercept = 18.5, linetype="dashed", color =  alpha("black", 0.6)) +
+  geom_vline(xintercept = 20.5, linetype="solid", color =  alpha("black", 0.6)) +
+  geom_vline(xintercept = 22.5, linetype="dashed", color =  alpha("black", 0.6)) +
+  geom_vline(xintercept = 24.5, linetype="solid", color =  alpha("black", 0.6))
+  
+
+
+plot_strategies_group1
+
+```
+
+```{r plot patterns over time 2022-2}
+strategies2 <- dompattern22 %>% 
+  filter(group==2) %>%
+  dplyr::select(bin, dompattern) %>%
+  mutate(observed_pattern = factor(dompattern, 
+            levels =c("bullying", "close competitor","downward heuristic"),
+            labels =c("Bullying", "Close competitor","Downward heuristic")))
+
+
+# dominance patterns long perturbation period
+plot_strategies_group2<- ggplot(strategies2, 
+                               aes(bin, observed_pattern)) +
+  geom_point(size = 6, shape = 21, colour = "black", aes(fill = observed_pattern )) +
+  labs(title = "", y="", x="social dominance pattern assessment periods") + #title = "social dominance pattern"
+  scale_fill_manual(values = c( "#0000FF","#C00000" , "#7F7F7F")) +
+  theme_classic() + #theme_minimal() 
+  theme(#axis.title = element_text(size=12, angle = 45), #element_blank()
+        #axis.text.y =element_text(size=12, angle = 25), 
+        legend.position = "none",
+        text = element_text(size =14),
+        axis.text = element_text(size=12),
+        plot.margin = unit(c(1, 1, 0.5, 1), "cm")) +
+  
+   scale_x_continuous(limits = c(1, 26), # change to 4 with removal period included
+                     breaks= c(1:26)) +
+  
+  
+  # # add lines to highlight removals and reintroductions
+  geom_vline(xintercept = 2.5, linetype="dashed", color =  alpha("black", 0.6)) + # removal
+  geom_vline(xintercept = 4.5, linetype="solid", color =  alpha("black", 0.6)) + # reintroduction
+  geom_vline(xintercept = 6.5, linetype="dashed", color =  alpha("black", 0.6)) +
+  geom_vline(xintercept = 8.5, linetype="solid", color =  alpha("black", 0.6)) +
+  geom_vline(xintercept = 10.5, linetype="dashed", color =  alpha("black", 0.6)) +
+  geom_vline(xintercept = 12.5, linetype="solid", color =  alpha("black", 0.6)) +
+  geom_vline(xintercept = 14.5, linetype="dashed", color =  alpha("black", 0.6)) +
+  geom_vline(xintercept = 16.5, linetype="solid", color =  alpha("black", 0.6)) +
+  geom_vline(xintercept = 18.5, linetype="dashed", color =  alpha("black", 0.6)) +
+  geom_vline(xintercept = 20.5, linetype="solid", color =  alpha("black", 0.6)) +
+  geom_vline(xintercept = 22.5, linetype="dashed", color =  alpha("black", 0.6)) +
+  geom_vline(xintercept = 24.5, linetype="solid", color =  alpha("black", 0.6))
+  
+
+
+plot_strategies_group2
+
+```
+
+
+```{r plot all combined}
+
+
+ggpubr::ggarrange( ggarrange( plot_strategies_2020 + rremove("xlab"),
+                              plot_strategies_summ21 + rremove("xlab") + rremove("ylab") + rremove("y.text"), 
+                              ncol=2, #labels=c("(a) Group 2020", "(b) Group 2021"),
+                              widths = c(1,2)),
+           plot_strategies_group1 + rremove("xlab"), 
+           plot_strategies_group2,
+          nrow = 3)
+          #labels = c("", "(c) Groups 2022-1", "(d) Groups 2022-2"),
+         # font.label = list(face ="plain"))
+
+ggsave("./figures/fig_dompatterns.pdf", width= 250, height=125, units="mm")
+
+
+```
+
+
+```{r}
+
+plot_strategies_2020
+
+ggsave("./figures/plot_dom20.pdf", width= 100, height=62.5, units="mm")
+
+plot_strategies_summ21
+ggsave("./figures/plot_dom21.pdf", width= 210, height=62.5, units="mm")
+
+plot_strategies_group1 
+ggsave("./figures/plot_dom22group1.pdf", width= 250, height=62.5, units="mm")
+
+plot_strategies_group2
+ggsave("./figures/plot_dom22group2.pdf", width= 250, height=62.5, units="mm")
+```
+
+
+
+# Aggression rate
+
+Aggression rate is calculated in the dominance pattern Rmarkdowns for each year separate. 
+
+## import data
+```{r}
+aggrate20 <- read.csv("output/summ_agg2020.csv") %>% 
+  mutate(group="2020", groupsize="large") %>% 
+  dplyr::select(group,groupsize, bin, ag_bird_obs)
+glimpse(aggrate20) # ag_bird_obs = aggression rate
+
+
+aggrate21a <- read.csv( "output/summ_agg2021a.csv") %>% 
+  mutate(group="2021", groupsize="large") %>% 
+  dplyr::select(group,groupsize, bin, ag_bird_obs)
+  
+  #write.csv(aggrate21a, "output/summ_agg2021a.csv") 
+
+aggrate21 <- read.csv("output/summ_agg2021social.csv") %>% 
+  mutate(group="2021", groupsize="large") %>%
+  rename(ag_bird_obs=ag_obs) %>% 
+  dplyr::select(group, groupsize, bin, ag_bird_obs) %>% 
+  bind_rows(aggrate21a) %>% 
+  arrange(bin)
+glimpse(aggrate21)
+
+aggrate22 <- read.csv("output/summ_agg2022.csv") %>% 
+  mutate(groupsize="small") %>% 
+  dplyr::select(group, groupsize, bin, ag_bird_obs)
+
+aggrate <- bind_rows(aggrate20, aggrate21, aggrate22 )
+glimpse(aggrate)
+head(aggrate)
+
+```
+## model
+```{r}
+range(aggrate$ag_bird_obs)
+hist(aggrate$ag_bird_obs)
+
+# normally distributed?
+# shapiro test p >0.05, data normally distributed
+ggpubr::ggqqplot(aggrate, "ag_bird_obs")
+shapiro.test(aggrate$ag_bird_obs)
+
+# distribution
+fitdistrplus::plotdist(aggrate$ag_bird_obs)
+fitdistrplus::descdist(aggrate$ag_bird_obs, discrete = FALSE)
+fit.gamma <- fitdistrplus::fitdist(aggrate$ag_bird_obs, 'gamma')
+plot(fit.gamma)
+
+
+gamma1 <- glmmTMB(ag_bird_obs ~  groupsize + (1|group) +(1|bin) , family = Gamma(link = "log"), data = aggrate)
+gamma2 <- glmmTMB(ag_bird_obs ~  1 +(1|group) +(1|bin) , family = Gamma(link = "log"), data = aggrate)
+summary(gamma1)
+
+AIC( gamma1, gamma2)
+
+lmtest::lrtest(gamma1, gamma2)
+
+```
+
+
+
+## plot
+```{r plot agg rate 2021}
+range(aggrate21$ag_bird_obs)
+
+ave.ag.rate.exp <- aggrate21 %>% 
+  filter(bin>10) %>% 
+  summarize(mean.exp=mean(ag_bird_obs))
+ave.ag.rate <- aggrate21 %>% 
+  filter(bin<11) %>% 
+  summarize(mean.exp=mean(ag_bird_obs))
+
+
+plot_controlaggression_21 <-  ggplot(aggrate21, aes(x = bin)) +
+  # add average rate of aggression
+  geom_hline(yintercept = mean(aggrate21$ag_bird_obs), color = alpha("grey", 0.6), size=2) +
+  
+  # aggression / bird / hours observed
+  geom_line(aes(y=ag_bird_obs), size=1) + 
+  geom_point(aes(y=ag_bird_obs), size=3) +
+  
+  scale_y_continuous(limits=c(0.0, 6.0)) +
+  scale_x_continuous(limits = c(1, 22),
+                     breaks= c(1:22)) +
+
+  theme_classic() +
+  theme(legend.position="bottom",
+         text = element_text(size=14),
+         axis.text = element_text(size=12),
+         axis.title.x = element_blank()) +
+   #     axis.text.x = element_blank(),
+    #    axis.ticks.x=element_line()) +
+  labs(y="aggression rate") + #, title = "Amount of aggression controlled for group size and hours observed"
+  
+  geom_vline(xintercept = 1.5, linetype="dotted", color =  alpha("black", 0.6)) + # thunderstorm
+  geom_vline(xintercept = 6.5, linetype="dotted", color =  alpha("black", 0.6)) +# removal of 2 injured birds
+  geom_vline(xintercept = 7.5, linetype="dotted", color =  alpha("black", 0.6)) + # dominant partner switch
+  
+  geom_vline(xintercept = 11.5, linetype="dashed", color =  alpha("black", 0.6)) + # removal
+  geom_vline(xintercept = 13.5, linetype="solid", color =  alpha("black", 0.6)) + # reintroduction
+  geom_vline(xintercept = 15.5, linetype="dashed", color =  alpha("black", 0.6)) +
+  geom_vline(xintercept = 17.5, linetype="solid", color =  alpha("black", 0.6)) +
+  geom_vline(xintercept = 19.5, linetype="dashed", color =  alpha("black", 0.6)) +
+  geom_vline(xintercept = 21.5, linetype="solid", color =  alpha("black", 0.6)) 
+  
+  
+ 
+
+plot_controlaggression_21
+
+```
+
+
+```{r plot agg rate 2022 together in 1 plot}
+
+plot_aggression_22<-  aggrate %>%
+  filter(group %in% c("2022-1", "2022-2")) %>% 
+
+  ggplot( aes(x = bin, group=group, color=group)) +
+  
+ # add average rate of aggression
+  geom_hline(yintercept = mean(aggrate$ag_bird_obs[aggrate$group=="2022-1"]), 
+             color = alpha("#DEAE3B",0.4),linewidth=1, linetype="dotdash") +  # group1
+  geom_hline(yintercept= mean(aggrate$ag_bird_obs[aggrate$group=="2022-2"]), 
+             color = alpha("#40B0A6",0.4), linewidth=1, linetype="dashed") +  # group2
+  
+  # aggression / bird / hours observed
+  geom_line(aes(y=ag_bird_obs), size=1) + 
+  geom_point(aes(y=ag_bird_obs), size=3) +
+  
+  scale_y_continuous(limits=c(0.0, 20.5)) +
+  scale_x_continuous(limits = c(1, 26), # change to 4 with removal period included
+                     breaks= c(1:26)) +
+  scale_color_manual(values = c("#DEAE3B", "#40B0A6")) +
+  theme_classic() +
+  theme(legend.position="bottom",
+         text = element_text(size=14),
+         axis.text = element_text(size=12),
+         axis.title.x = element_blank()) +
+   #     axis.text.x = element_blank(),
+    #    axis.ticks.x=element_line()) +
+  labs(y="aggression rate") + #, title = "Amount of aggression controlled for group size and hours observed"
+  
+   # # add lines to highlight removals and reintroductions
+  geom_vline(xintercept = 2.5, linetype="dashed", color =  alpha("black", 0.6)) + # removal
+  geom_vline(xintercept = 4.5, linetype="solid", color =  alpha("black", 0.6)) + # reintroduction
+  geom_vline(xintercept = 6.5, linetype="dashed", color =  alpha("black", 0.6)) +
+  geom_vline(xintercept = 8.5, linetype="solid", color =  alpha("black", 0.6)) +
+  geom_vline(xintercept = 10.5, linetype="dashed", color =  alpha("black", 0.6)) +
+  geom_vline(xintercept = 12.5, linetype="solid", color =  alpha("black", 0.6)) +
+  geom_vline(xintercept = 14.5, linetype="dashed", color =  alpha("black", 0.6)) +
+  geom_vline(xintercept = 16.5, linetype="solid", color =  alpha("black", 0.6)) +
+  geom_vline(xintercept = 18.5, linetype="dashed", color =  alpha("black", 0.6)) +
+  geom_vline(xintercept = 20.5, linetype="solid", color =  alpha("black", 0.6)) +
+  geom_vline(xintercept = 22.5, linetype="dashed", color =  alpha("black", 0.6)) +
+  geom_vline(xintercept = 24.5, linetype="solid", color =  alpha("black", 0.6))
+  
+ 
+ 
+plot_aggression_22 
+
+
+```
+
+
+
+```{r plot all combined}
+# font looks very small
+
+ggpubr::ggarrange( ggarrange( plot_aggression_control2020_hours + rremove("xlab"),
+                              plot_controlaggression_21 + rremove("xlab") + rremove("ylab") + rremove("y.text"), 
+                              ncol=2, labels=c("(a) Group 2020", "(b) Group 2021"),
+                              widths = c(0.7,2), font.label = list(face ="plain")),
+           plot_aggression_22 , 
+          nrow = 2,
+          labels = c("", "(c) Groups 2022-1"),
+          font.label = list(face ="plain"))
+
+ggsave("./figures/fig_aggrateXtime.pdf", width= 250, height=125, units="mm")
+
+```
+
+
+
+```{r}
+plot_biggroups <- ggarrange( plot_aggression_control2020_hours + rremove("xlab"),
+                              plot_controlaggression_21 + rremove("xlab") + rremove("ylab") + rremove("y.text"), 
+                              ncol=2, labels=c("(a) Group 2020", "(b) Group 2021"),
+                              widths = c(0.6,2), font.label = list(face ="plain"))
+plot_biggroups
+ggsave("./figures/plot_biggroups.pdf", width= 250, height=85, units="mm")
+
+
+plot_aggression_22group1 
+ggsave("./figures/plot_smallgroup1.pdf", width= 250, height=85, units="mm")
+
+
+
+plot_aggression_22group2 
+ggsave("./figures/plot_smallgroup2.pdf", width= 250, height=85, units="mm")
+```
+
+
+
+
+
+# Aggression balance 
+## 2020
+
+```{r}
+findiv.aggressiveness20 <- aggXbin20 %>% 
+    group_by(bin, actor) %>% 
+    summarise(n.given=sum(n.aggXbin)) %>% 
+    #tally() %>% # this gets at number of different birds aggression was directed to 
+   rename(id=actor)
+  findiv.aggressiveness20
+  
+  findiv.receivedagg20 <- aggXbin20 %>% 
+    group_by(bin, subject) %>% 
+    summarise(n.received=sum(n.aggXbin)) %>% 
+    #tally() %>% # this gets at number of different birds aggression was directed to
+   rename(id=subject)
+  findiv.receivedagg20
+  
+   #bind aggressiveness & received agg together, sort x aggressiveness
+  
+  fsumm.indiv.aggs20 <- findiv.aggressiveness20 %>% 
+    left_join(findiv.receivedagg20, by=c("bin", "id")) 
+  
+    fsumm.indiv.aggs20[is.na(fsumm.indiv.aggs20)] <- 0
+  
+   fsumm.indiv.aggs20 <-fsumm.indiv.aggs20 %>% 
+     mutate(total.events=n.given+n.received,
+           agg.balance=n.given/total.events, 
+           focal="nonfocal",
+           focalrank="non-experimental", 
+           group="2020") %>% 
+    dplyr::select(group, bin, id, agg.balance, focal, focalrank)
+  
+  
+   
+     ## plot
+plot_aggdyna20 <- ggplot(fsumm.indiv.aggs20, aes(x=bin, y=agg.balance, color=id)) +
+  geom_bump(size = 1, smooth = 15, alpha = 0.5) +
+  scale_x_continuous( breaks = seq(1,10,1)) +
+  scale_y_continuous( breaks = seq(0.00,1.00,0.25)) + 
+  scale_colour_manual(values = birdIDs_color20$unicol) + 
+  labs(x="Social dominance pattern assessment periods", y = "Aggression balance") + #, subtitle = "Group 2021"
+  theme_classic() + 
+  theme(legend.position = "none",
+        text = element_text(size=16),
+         axis.text = element_text(size=14)) 
+
+plot_aggdyna20<- plot_aggdyna20  + labs(title = "(a) Group 2020")
+
+ggsave("./figures/fig_balanceXtime_2020.pdf", width = 6, height = 3) 
+
+
+
+   
+   
+```
+
+
+## 2021 - non-experimental period
+
+```{r}
+findiv.aggressiveness21a <- aggXbin21a %>% 
+    group_by(bin, actor) %>% 
+    summarise(n.given=sum(n.aggXbin)) %>% 
+    #tally() %>% # this gets at number of different birds aggression was directed to 
+   rename(id=actor)
+  findiv.aggressiveness21a
+  
+  findiv.receivedagg21a <- aggXbin21a %>% 
+    group_by(bin, subject) %>% 
+    summarise(n.received=sum(n.aggXbin)) %>% 
+    #tally() %>% # this gets at number of different birds aggression was directed to
+   rename(id=subject)
+    findiv.receivedagg21a[is.na( findiv.receivedagg21a)] <- 0
+  findiv.receivedagg21a
+  
+   #bind aggressiveness & received agg together, sort x aggressiveness
+  
+  fsumm.indiv.aggs21a <- findiv.aggressiveness21a %>% 
+    left_join(findiv.receivedagg21a, by=c("bin", "id")) 
+  fsumm.indiv.aggs21a[is.na(fsumm.indiv.aggs21a)] <- 0
+  
+    fsumm.indiv.aggs21a <- fsumm.indiv.aggs21a  %>%
+      mutate(total.events=n.given+n.received,
+           agg.balance=n.given/total.events, 
+           focal="nonfocal",
+           focalrank="non-experimental", 
+           group="2021-start") %>% 
+    dplyr::select(group, bin, id, agg.balance, focal, focalrank)
+  
+  
+  ## plot
+plot_aggdyna21a <- ggplot(fsumm.indiv.aggs21a, aes(x=bin, y=agg.balance, color=id)) +
+  geom_bump(size = 1, smooth = 15, alpha = 0.5) +
+  scale_x_continuous( breaks = seq(1,10,1)) +
+  scale_y_continuous( breaks = seq(0.00,1.00,0.25)) + 
+  scale_colour_manual(values = birdIDs_color$unicol) + 
+  labs(x="Social dominance pattern assessment periods", y = "Aggression balance") + #, subtitle = "Group 2021"
+  theme_classic() + 
+  theme(legend.position = "none",
+        text = element_text(size=14),
+         axis.text = element_text(size=12)) +
+  
+  # add lines to highlight perturbations
+
+  geom_vline(xintercept = 1.5, linetype="dashed", color =  alpha("black", 0.6)) + # thunderstorm
+  geom_vline(xintercept = 6.5, linetype="dashed", color =  alpha("black", 0.6)) + # removal 2 injured birds
+geom_vline(xintercept = 7.5, linetype="dashed", color =  alpha("black", 0.6)) # dominant partner switch
+
+
+plot_aggdyna21a
+```
+
+
+
+##2021 - social experiment
+```{r agg balance 2021}
+# aggression against focal bird during reintroduction bin
+#bin_reintro21 <- c(14, 18, 22)
+
+ findiv.aggressiveness <- aggXbin21 %>% 
+    group_by(bin, actor) %>% 
+    summarise(n.given=sum(n.aggXbin)) %>% 
+    #tally() %>% # this gets at number of different birds aggression was directed to 
+   rename(id=actor)
+  findiv.aggressiveness
+  
+  findiv.receivedagg<- aggXbin21 %>% 
+    group_by(bin, subject) %>% 
+    summarise(n.received=sum(n.aggXbin)) %>% 
+    #tally() %>% # this gets at number of different birds aggression was directed to
+   rename(id=subject)
+  findiv.receivedagg
+  
+   #bind aggressiveness & received agg together, sort x aggressiveness
+  
+  fsumm.indiv.aggs <- findiv.aggressiveness %>% 
+    left_join(findiv.receivedagg, by=c("bin", "id")) %>% 
+    mutate(total.events=n.given+n.received,
+           agg.balance=n.given/total.events) %>% 
+    left_join(power21, by=c("bin", "id")) 
+  
+  # fsumm.indiv.aggs[1,5]
+  fsumm.indiv.aggs[1,4]<- 0 
+  fsumm.indiv.aggs[1,5]<- 254
+  fsumm.indiv.aggs[1,6]<- 1.0 
+  
+
+bin21_before_after <- c(11, 14, 15, 18, 19, 22)
+bin21_keep <- c(11, 15, 19)
+
+
+## plot aggression balance dynamics over time
+# exclude the focal birds
+plot_nonfocals <- fsumm.indiv.aggs %>% 
+  filter( !id %in% c("BBB", "GPG", "OPP"))
+unique(plot_nonfocals$id)
+length(unique(plot_nonfocals$id))
+
+glimpse(plot_nonfocals)
+plot_nonfocals$bin <- as.integer(plot_nonfocals$bin)
+
+## plot (highlight most dominant)
+# first plot the nonfocal birds
+plot_aggdyna <- ggplot(plot_nonfocals, aes(x=bin, y=agg.balance, color=id)) +
+  geom_bump(size = 1, smooth = 15, alpha = 0.2) +
+  scale_x_continuous( breaks = seq(11,22,1)) +
+  scale_y_continuous( breaks = seq(0.00,1.00,0.25)) + 
+  scale_colour_manual(values = birdIDs_color$unicol) + 
+  labs(x="Social dominance assessment periods", y = "Aggression balance") + #, subtitle = "Group 2021"
+  theme_classic() + 
+  theme(legend.position = "none",
+        text = element_text(size=14),
+         axis.text = element_text(size=12)) +
+  
+
+   
+# add lines to highlight removals and reintroductions
+  geom_vline(xintercept = 11.5, linetype="dashed", color =  alpha("black", 0.6)) + # removal
+  geom_vline(xintercept = 13.5, linetype="solid", color =  alpha("black", 0.6)) + # reintroduction
+  geom_vline(xintercept = 15.5, linetype="dashed", color =  alpha("black", 0.6)) +
+  geom_vline(xintercept = 17.5, linetype="solid", color =  alpha("black", 0.6)) +
+  geom_vline(xintercept = 19.5, linetype="dashed", color =  alpha("black", 0.6)) +
+  geom_vline(xintercept = 21.5, linetype="solid", color =  alpha("black", 0.6)) 
+plot_aggdyna
+
+
+# now add lines for the focal birds
+# BBB removal 3 and 4
+# unique(power_plot_21$colorXbird[power_plot_21$id=="BBB"])
+plotBBB <- plot_aggdyna +  #blue = "#1f78b4"/ magenta = "#8E0152"
+  geom_point(data = fsumm.indiv.aggs  %>% filter(id=="BBB", bin==11),
+             mapping = aes(x=bin, y=agg.balance), 
+             smooth = 15, size = 2, shape=21, 
+             fill = "#004DFF", color="black",
+             inherit.aes = F) +
+  geom_point(data = fsumm.indiv.aggs  %>% filter(id=="BBB", bin==14),
+             mapping = aes(x=bin, y=agg.balance), 
+             smooth = 15, size = 2, shape = 23, 
+             fill = "#004DFF", color="black", 
+             inherit.aes = F) +
+  geom_bump(data = fsumm.indiv.aggs %>% filter(id == "BBB", bin<12), 
+            mapping = aes(x=bin, y=agg.balance), 
+            smooth = 15, size = 1, 
+            color = "#004DFF",
+            inherit.aes = F) + 
+  geom_bump(data = fsumm.indiv.aggs %>% filter(id == "BBB", bin>13), 
+            mapping = aes(x=bin, y=agg.balance), 
+            smooth = 15, size = 1, 
+            color = "#004DFF", inherit.aes = F) 
+  # geom_text(data = fsumm.indiv.aggs %>% filter(id == "BBB",bin == min(bin) ),
+  #           aes(x = bin - 1.5, label = "BBB"),
+  #           color = "#004DFF", size = 2, hjust = 0)  #, fontface = "bold"
+plotBBB
+
+# GPG removal bin 7 and 8
+plotGPG <- plotBBB + # purple = "#6a51a3", 
+  geom_point(data = fsumm.indiv.aggs  %>% filter(id=="GPG", bin==15),
+             mapping = aes(x=bin, y=agg.balance), 
+             smooth = 15, size = 2, shape =21, 
+             fill= "#6a51a3", color="black", 
+             inherit.aes = F) +
+  geom_point(data = fsumm.indiv.aggs  %>% filter(id=="GPG", bin==18),
+             mapping = aes(x=bin, y=agg.balance), 
+             smooth = 15, size = 2, shape=23, 
+             fill = "#6a51a3", color="black", 
+             inherit.aes = F) +
+  geom_bump(data = fsumm.indiv.aggs %>% filter(id == "GPG", bin<16), 
+            mapping = aes(x=bin, y=agg.balance), 
+            smooth = 15, size = 1, color = "#6a51a3", inherit.aes = F) + 
+  geom_bump(data = fsumm.indiv.aggs %>% filter(id == "GPG", bin>17), 
+            mapping = aes(x=bin, y=agg.balance), 
+            smooth = 15, size = 1, color = "#6a51a3", inherit.aes = F) 
+  # geom_text(data = fsumm.indiv.aggs%>% filter(id == "GPG",bin == min(bin) ),
+  #           aes(x = bin - 1.5, label = "GPG"),
+  #           color = "#6a51a3", size = 2, hjust = 0)  #, fontface = "bold"
+plotGPG
+    
+
+# OPP removal bin 11 and 12
+plotOPP <- plotGPG +  # orange = "#ff7f00"/ lime = #E6F5D0
+  geom_point(data = fsumm.indiv.aggs  %>% filter(id=="OPP", bin==19),
+             mapping = aes(x=bin, y=agg.balance), 
+             smooth = 15, size = 2, shape = 21, 
+             fill = "#ff7f00", color = "black",
+             inherit.aes = F) +
+  geom_point(data =fsumm.indiv.aggs %>% filter(id=="OPP", bin==22),
+             mapping = aes(x=bin, y=agg.balance), 
+             smooth = 15, size = 2, shape = 23, 
+             color = "black", fill = "#ff7f00", 
+             inherit.aes = F) +
+  geom_bump(data = fsumm.indiv.aggs %>% filter(id == "OPP", bin<20), 
+            mapping = aes(x=bin, y=agg.balance), 
+            smooth = 15, size = 1, color = "#ff7f00", inherit.aes = F) + 
+  geom_bump(data = fsumm.indiv.aggs %>% filter(id == "OPP", bin>21), 
+            mapping = aes(x=bin, y=agg.balance), 
+            smooth = 15, size = 1, color = "#ff7f00", inherit.aes = F) 
+  # geom_text(data = fsumm.indiv.aggs %>% filter(id == "OPP",bin == min(bin) ),
+  #           aes(x = bin - 1.5, label = "OPP"),
+  #           color = "#ff7f00", size = 10, hjust = 0) #, fontface = "bold"
+plotOPP 
+
+plot_aggXtime21<- plotOPP
+#plot_powerXtime21 <- plotOPP
+
+# all combined
+ggsave("./figures/Fig_aggXtime_21.png", width = 9, height = 5)
+
+```
+
+```{r}
+## plot aggression balance dynamics over time
+
+fsumm.indiv.aggs21social <- bind_rows(fsumm.indiv.aggs21a, fsumm.indiv.aggs)
+
+# exclude the focal birds
+plot_nonfocals <- fsumm.indiv.aggs21social %>% 
+  filter( !id %in% c("BBB", "GPG", "OPP"))
+unique(plot_nonfocals$id)
+length(unique(plot_nonfocals$id))
+
+glimpse(plot_nonfocals)
+plot_nonfocals$bin <- as.integer(plot_nonfocals$bin)
+
+## plot (highlight most dominant)
+# first plot the nonfocal birds
+plot_aggdyna <- ggplot(plot_nonfocals, aes(x=bin, y=agg.balance, color=id)) +
+  geom_bump(size = 1, smooth = 15, alpha = 0.2) +
+  scale_x_continuous( breaks = seq(1,22,1)) +
+  scale_y_continuous( breaks = seq(0.00,1.00,0.25)) + 
+  scale_colour_manual(values = birdIDs_color$unicol) + 
+  labs(x="Social dominance assessment periods", y = "Aggression balance") + #, subtitle = "Group 2021"
+  theme_classic() + 
+  theme(legend.position = "none",
+        text = element_text(size=16),
+         axis.text = element_text(size=14)) +
+  
+    # add lines to highlight non-experimental perturbations
+    geom_vline(xintercept = 1.5, linetype="dotted", color =  alpha("black", 0.6)) + # thunderstorm
+  geom_vline(xintercept = 6.5, linetype="dotted", color =  alpha("black", 0.6)) + # removal 2 injured birds
+geom_vline(xintercept = 7.5, linetype="dotted", color =  alpha("black", 0.6)) + # dominant partner switch
+  
+   # add lines to highlight removals and reintroductions
+  geom_vline(xintercept = 11.5, linetype="dashed", color =  alpha("black", 0.6)) + # removal
+  geom_vline(xintercept = 13.5, linetype="solid", color =  alpha("black", 0.6)) + # reintroduction
+  geom_vline(xintercept = 15.5, linetype="dashed", color =  alpha("black", 0.6)) +
+  geom_vline(xintercept = 17.5, linetype="solid", color =  alpha("black", 0.6)) +
+  geom_vline(xintercept = 19.5, linetype="dashed", color =  alpha("black", 0.6)) +
+  geom_vline(xintercept = 21.5, linetype="solid", color =  alpha("black", 0.6)) 
+plot_aggdyna
+
+
+# now add lines for the focal birds
+# BBB removal 3 and 4
+# unique(power_plot_21$colorXbird[power_plot_21$id=="BBB"])
+plotBBB <- plot_aggdyna +  #blue = "#1f78b4"/ magenta = "#8E0152"
+  geom_point(data = fsumm.indiv.aggs21social  %>% filter(id=="BBB", bin==11),
+             mapping = aes(x=bin, y=agg.balance), 
+             smooth = 15, size = 2, shape=21, 
+             fill = "#004DFF", color="black",
+             inherit.aes = F) +
+  geom_point(data = fsumm.indiv.aggs21social  %>% filter(id=="BBB", bin==14),
+             mapping = aes(x=bin, y=agg.balance), 
+             smooth = 15, size = 2, shape = 23, 
+             fill = "#004DFF", color="black", 
+             inherit.aes = F) +
+  geom_bump(data = fsumm.indiv.aggs21social %>% filter(id == "BBB", bin<12), 
+            mapping = aes(x=bin, y=agg.balance), 
+            smooth = 15, size = 1, 
+            color = "#004DFF",
+            inherit.aes = F) + 
+  geom_bump(data = fsumm.indiv.aggs21social %>% filter(id == "BBB", bin>13), 
+            mapping = aes(x=bin, y=agg.balance), 
+            smooth = 15, size = 1, 
+            color = "#004DFF", inherit.aes = F) 
+  # geom_text(data = fsumm.indiv.aggs21social %>% filter(id == "BBB",bin == min(bin) ),
+  #           aes(x = bin - 1.5, label = "BBB"),
+  #           color = "#004DFF", size = 2, hjust = 0)  #, fontface = "bold"
+plotBBB
+
+# GPG removal bin 7 and 8
+plotGPG <- plotBBB + # purple = "#6a51a3", 
+  geom_point(data = fsumm.indiv.aggs21social  %>% filter(id=="GPG", bin==15),
+             mapping = aes(x=bin, y=agg.balance), 
+             smooth = 15, size = 2, shape =21, 
+             fill= "#6a51a3", color="black", 
+             inherit.aes = F) +
+  geom_point(data = fsumm.indiv.aggs21social  %>% filter(id=="GPG", bin==18),
+             mapping = aes(x=bin, y=agg.balance), 
+             smooth = 15, size = 2, shape=23, 
+             fill = "#6a51a3", color="black", 
+             inherit.aes = F) +
+  geom_bump(data = fsumm.indiv.aggs21social %>% filter(id == "GPG", bin<16), 
+            mapping = aes(x=bin, y=agg.balance), 
+            smooth = 15, size = 1, color = "#6a51a3", inherit.aes = F) + 
+  geom_bump(data = fsumm.indiv.aggs21social %>% filter(id == "GPG", bin>17), 
+            mapping = aes(x=bin, y=agg.balance), 
+            smooth = 15, size = 1, color = "#6a51a3", inherit.aes = F) 
+  # geom_text(data = fsumm.indiv.aggs21social%>% filter(id == "GPG",bin == min(bin) ),
+  #           aes(x = bin - 1.5, label = "GPG"),
+  #           color = "#6a51a3", size = 2, hjust = 0)  #, fontface = "bold"
+plotGPG
+    
+
+# OPP removal bin 11 and 12
+plotOPP <- plotGPG +  # orange = "#ff7f00"/ lime = #E6F5D0
+  geom_point(data = fsumm.indiv.aggs21social  %>% filter(id=="OPP", bin==19),
+             mapping = aes(x=bin, y=agg.balance), 
+             smooth = 15, size = 2, shape = 21, 
+             fill = "#ff7f00", color = "black",
+             inherit.aes = F) +
+  geom_point(data =fsumm.indiv.aggs21social %>% filter(id=="OPP", bin==22),
+             mapping = aes(x=bin, y=agg.balance), 
+             smooth = 15, size = 2, shape = 23, 
+             color = "black", fill = "#ff7f00", 
+             inherit.aes = F) +
+  geom_bump(data = fsumm.indiv.aggs21social %>% filter(id == "OPP", bin<20), 
+            mapping = aes(x=bin, y=agg.balance), 
+            smooth = 15, size = 1, color = "#ff7f00", inherit.aes = F) + 
+  geom_bump(data = fsumm.indiv.aggs21social %>% filter(id == "OPP", bin>21), 
+            mapping = aes(x=bin, y=agg.balance), 
+            smooth = 15, size = 1, color = "#ff7f00", inherit.aes = F) 
+  # geom_text(data = fsumm.indiv.aggs21social %>% filter(id == "OPP",bin == min(bin) ),
+  #           aes(x = bin - 1.5, label = "OPP"),
+  #           color = "#ff7f00", size = 10, hjust = 0) #, fontface = "bold"
+plotOPP 
+
+plot_aggXtime2021<- plotOPP + labs(title = "(b) Group 2021")
+
+ggsave("./figures/fig_balanceXtime_2021.pdf", width = 12, height = 3) 
+#plot_powerXtime21 <- plotOPP
+```
+
+
+
+
+## 2022
+```{r agg balance 2022}
+
+ findiv.aggressiveness22 <- aggXbin22 %>% 
+    group_by(group, bin, actor) %>% 
+    summarise(n.given=sum(n.aggXbin)) %>% 
+    #tally() %>% # this gets at number of different birds aggression was directed to
+   rename(id=actor)
+  findiv.aggressiveness22
+  
+  findiv.receivedagg22 <- aggXbin22 %>% 
+    group_by(group, bin, subject) %>% 
+    summarise(n.received=sum(n.aggXbin)) %>% 
+    #tally() %>% # this gets at number of different birds aggression was directed to
+   rename(id=subject)
+  findiv.receivedagg22
+  
+   #bind aggressiveness & received agg together, sort x aggressiveness
+  fsumm.indiv.aggs22 <- findiv.aggressiveness22 %>% 
+    left_join(findiv.receivedagg22, by=c("group", "bin", "id")) 
+  
+  fsumm.indiv.aggs22[is.na(fsumm.indiv.aggs22)] <- 0
+  
+  # for which bins am I missing birds?
+  bins_missingbirds <-  fsumm.indiv.aggs22 %>% 
+    group_by(group, bin) %>% 
+    tally()
+  
+     # which bins with all 11 birds? 
+  bins11birds <- c(1,2,5,6,9,10,13,14,17,18,21,22)
+  
+      #merge aggression to full bird list so that individuals who were not interacting still appear
+  bird.list <- birdIDs %>% 
+    rename(id=markID) %>% 
+    separate(group, c("group", "direction"), sep="_") %>% 
+    select(group, id)
+  bird.list$group <- as.integer(bird.list$group)
+  
+ 
+   fsumm.indiv.aggs22.power <- fsumm.indiv.aggs22 %>%   
+  mutate(total.events=n.given+n.received,
+           agg.balance=n.given/total.events) %>% 
+    full_join(power22, by=c("group", "bin", "id")) %>% 
+    dplyr::arrange(group, bin, power)
+    # ungroup() %>% 
+    # select(group, bin, id, n.given, n.received, total.events, agg.balance, rank, power)
+ fsumm.indiv.aggs22.power[is.na(fsumm.indiv.aggs22.power)] <- 0
+
+```
+
+
+
+2022 group 1
+
+
+```{r 2022_group1}
+
+# exclude the focal birds
+glimpse(birdIDs)
+focalsgroup1<- filter(focals22, group=="1_west") 
+
+balance_22_g1_nonfocals <- fsumm.indiv.aggs22.power  %>% 
+  filter( group==1, !id %in% focalsgroup1$focal )
+unique(balance_22_g1_nonfocals$id)
+length(unique(balance_22_g1_nonfocals$id))
+unique(balance_22_g1_nonfocals$group)
+
+colors_nonfocals <- birdIDs_color22 %>% 
+  filter(!id %in% focalsgroup1$focal )
+
+# plot all 
+plotg1 <- ggplot(balance_22_g1_nonfocals, aes(x=bin, y=agg.balance, color=id)) +
+  geom_bump(size = 1, smooth = 15, alpha = 0.2) +
+  #facet_wrap(~group, nrow = 2) +  # split by group
+  
+  scale_x_continuous( breaks = seq(1,26,1)) +
+  #scale_y_continuous(limits = c(0.0, 1.00), breaks = seq(0.00,1.00,0.25)) +
+  scale_colour_manual(values = unique(colors_nonfocals$unicol)) + #colorXbird #custom_palette
+  #ggtitle("dominance: eigenvector centrality") +
+  labs(x="Social dominance assessment periods", y = "Aggression balance") + #, subtitle = "Group 2022-1"
+
+  theme_classic() + theme(legend.position = "none",
+                          text = element_text(size=16),
+         axis.text = element_text(size=14)) +
+  geom_vline(xintercept = c(2.5,6.5, 10.5, 14.5, 18.5, 22.5 ), 
+             linetype="dashed", color =  alpha("black", 0.6)) + # removal   
+  geom_vline(xintercept = c(4.5, 8.5,12.5, 16.5, 20.5, 24.5),
+             linetype="solid", color =  alpha("black", 0.6))   # reintro
+
+
+plotg1
+
+# highlight focal birds
+# unique(power_plot_21$colorXbird[power_plot_21$id=="BBB"])
+
+
+
+# trial 1
+focaltrial1 <- "PBO"
+plottrial1 <- plotg1 +  #blue = "#1f78b4"/ magenta = "#8E0152"
+  geom_point(data = fsumm.indiv.aggs22.power %>% filter(group==1, id==focaltrial1 , bin==2),
+             mapping = aes(x=bin, y=agg.balance), 
+             smooth = 15, size = 2, shape = 21, color="black",
+             fill = unique(birdIDs_color22$unicol[birdIDs_color22$id==focaltrial1]), 
+             inherit.aes = F) +
+  geom_point(data = fsumm.indiv.aggs22.power %>% filter(group==1,id==focaltrial1 , bin==5),
+             mapping = aes(x=bin, y=agg.balance), 
+             smooth = 15, size = 2, shape = 23, color="black",
+             fill = unique(birdIDs_color22$unicol[birdIDs_color22$id==focaltrial1]), 
+             inherit.aes = F) +
+  geom_bump(data = fsumm.indiv.aggs22.power %>% filter(group==1,id == focaltrial1 , bin<3), 
+            mapping = aes(x=bin, y=agg.balance), 
+            smooth = 15, size = 1, 
+            color = unique(birdIDs_color22$unicol[birdIDs_color22$id==focaltrial1]),
+            inherit.aes = F) + 
+  geom_bump(data = fsumm.indiv.aggs22.power %>% filter(group==1,id == focaltrial1 , bin>4), 
+            mapping = aes(x=bin, y=agg.balance), 
+            smooth = 15, size = 1, 
+            color = unique(birdIDs_color22$unicol[birdIDs_color22$id==focaltrial1]), 
+            inherit.aes = F) 
+  # geom_text(data = fsumm.indiv.aggs22.power %>% filter(group==1,id == focaltrial1 ,bin == min(bin) ),
+  #           aes(x = bin - 1.5, label = focaltrial1 ),
+  #           color = unique(birdIDs_color22$unicol[birdIDs_color22$id==focaltrial1 ]), 
+  #           size = 10, hjust = 0) 
+plottrial1
+
+#  removal bin 7 and 8
+focaltrial2 <- "OOO"
+plottrial2 <- plottrial1 +  
+  geom_point(data = fsumm.indiv.aggs22.power %>% filter(group==1,id==focaltrial2 , bin==6),
+             mapping = aes(x=bin, y=agg.balance), 
+             smooth = 15, size = 2, shape = 21, color="black",
+             fill = unique(birdIDs_color22$unicol[birdIDs_color22$id==focaltrial2]), 
+             inherit.aes = F) +
+  geom_point(data = fsumm.indiv.aggs22.power %>% filter(group==1,id==focaltrial2 , bin==9),
+             mapping = aes(x=bin, y=agg.balance), 
+             smooth = 15, size = 2, shape = 23, color="black",
+             fill = unique(birdIDs_color22$unicol[birdIDs_color22$id==focaltrial2]), 
+             inherit.aes = F) +
+  geom_bump(data = fsumm.indiv.aggs22.power %>% filter(group==1,id == focaltrial2 , bin<7), 
+            mapping = aes(x=bin, y=agg.balance), 
+            smooth = 15, size = 1, 
+            color = unique(birdIDs_color22$unicol[birdIDs_color22$id==focaltrial2]),
+            inherit.aes = F) + 
+  geom_bump(data = fsumm.indiv.aggs22.power %>% filter(group==1,id == focaltrial2 , bin>8), 
+            mapping = aes(x=bin, y=agg.balance), 
+            smooth = 15, size = 1, 
+            color = unique(birdIDs_color22$unicol[birdIDs_color22$id==focaltrial2]), 
+            inherit.aes = F) 
+  # geom_text(data = fsumm.indiv.aggs22.power %>% filter(group==1,id == focaltrial2 ,bin == min(bin) ),
+  #           aes(x = bin - 1.5, label = focaltrial2 ),
+  #           color = unique(birdIDs_color22$unicol[birdIDs_color22$id==focaltrial2]), 
+  #           size = 10, hjust = 0)  
+plottrial2
+    
+
+#  removal bin 11 and 12
+focaltrial3 <- "PGG"
+plottrial3 <- plottrial2 +  
+  geom_point(data = fsumm.indiv.aggs22.power %>% filter(group==1,id==focaltrial3 , bin==10),
+             mapping = aes(x=bin, y=agg.balance), 
+             smooth = 15, size = 2, shape = 21, color="black", 
+             fill = unique(birdIDs_color22$unicol[birdIDs_color22$id==focaltrial3]), 
+             inherit.aes = F) +
+  geom_point(data = fsumm.indiv.aggs22.power %>% filter(group==1,id==focaltrial3 , bin==13),
+             mapping = aes(x=bin, y=agg.balance), 
+             smooth = 15, size = 2, shape = 23, color="black",
+             fill = unique(birdIDs_color22$unicol[birdIDs_color22$id==focaltrial3]), 
+             inherit.aes = F) +
+  geom_bump(data = fsumm.indiv.aggs22.power %>% filter(group==1,id == focaltrial3 , bin<11), 
+            mapping = aes(x=bin, y=agg.balance), 
+            smooth = 15, size = 1, 
+            color = unique(birdIDs_color22$unicol[birdIDs_color22$id==focaltrial3]),
+            inherit.aes = F) + 
+  geom_bump(data = fsumm.indiv.aggs22.power %>% filter(group==1,id == focaltrial3 , bin>12), 
+            mapping = aes(x=bin, y=agg.balance), 
+            smooth = 15, size = 1, 
+            color = unique(birdIDs_color22$unicol[birdIDs_color22$id==focaltrial3]), 
+            inherit.aes = F) 
+  # geom_text(data = fsumm.indiv.aggs22.power %>% filter(group==1,id == focaltrial2 ,bin == min(bin) ),
+  #           aes(x = bin - 1.5, label = focaltrial3 ),
+  #           color = unique(birdIDs_color22$colorXbird[birdIDs_color22$id==focaltrial3]), 
+  #           size = 10, hjust = 0)  
+plottrial3
+
+# trial 4, bin 15 and 16
+focaltrial4 <- "GPO"
+plottrial4 <- plottrial3 +  
+  geom_point(data = fsumm.indiv.aggs22.power %>% filter(group==1,id==focaltrial4 , bin==14),
+             mapping = aes(x=bin, y=agg.balance), 
+             smooth = 15, size = 2, shape = 21, color="black",
+             color = unique(birdIDs_color22$unicol[birdIDs_color22$id==focaltrial4]), 
+             inherit.aes = F) +
+  geom_point(data = fsumm.indiv.aggs22.power %>% filter(group==1,id==focaltrial4 , bin==17),
+             mapping = aes(x=bin, y=agg.balance), 
+             smooth = 15, size = 2, shape = 23, color="black",
+             fill = unique(birdIDs_color22$unicol[birdIDs_color22$id==focaltrial4]), 
+             inherit.aes = F) +
+  geom_bump(data = fsumm.indiv.aggs22.power %>% filter(group==1,id == focaltrial4 , bin<15), 
+            mapping = aes(x=bin, y=agg.balance), 
+            smooth = 15, size = 1, 
+            color = unique(birdIDs_color22$unicol[birdIDs_color22$id==focaltrial4]),
+            inherit.aes = F) + 
+  geom_bump(data =fsumm.indiv.aggs22.power %>% filter(group==1,id == focaltrial4 , bin>16), 
+            mapping = aes(x=bin, y=agg.balance), 
+            smooth = 15, size = 1, 
+            color = unique(birdIDs_color22$unicol[birdIDs_color22$id==focaltrial4]), 
+            inherit.aes = F) 
+  # geom_text(data = fsumm.indiv.aggs22.power %>% filter(group==1,id == focaltrial4 ,bin == min(bin) ),
+  #           aes(x = bin - 1.5, label = focaltrial4 ),
+  #           color = unique(birdIDs_color22$unicol[birdIDs_color22$id==focaltrial4 ]), 
+  #           size = 10, hjust = 0)  
+ 
+plottrial4
+
+#  removal bin 7 and 8
+focaltrial5 <- "OPP"
+plottrial5 <- plottrial4 +  
+  geom_point(data = fsumm.indiv.aggs22.power %>% filter(group==1,id==focaltrial5 , bin==18),
+             mapping = aes(x=bin, y=agg.balance), 
+             smooth = 15, size = 2, shape = 21, color="black",
+             fill = unique(birdIDs_color22$unicol[birdIDs_color22$id==focaltrial5]), 
+             inherit.aes = F) +
+  geom_point(data = fsumm.indiv.aggs22.power %>% filter(group==1,id==focaltrial5 , bin==21),
+             mapping = aes(x=bin, y=agg.balance), 
+             smooth = 15, size = 2, shape = 23, color="black",
+             fill = unique(birdIDs_color22$unicol[birdIDs_color22$id==focaltrial5]), 
+             inherit.aes = F) +
+  geom_bump(data = fsumm.indiv.aggs22.power %>% filter(group==1,id == focaltrial5 , bin<19), 
+            mapping = aes(x=bin, y=agg.balance), 
+            smooth = 15, size = 1, 
+            color = unique(birdIDs_color22$unicol[birdIDs_color22$id==focaltrial5]),
+            inherit.aes = F) + 
+  geom_bump(data = fsumm.indiv.aggs22.power %>% filter(group==1,id == focaltrial5 , bin>20), 
+            mapping = aes(x=bin, y=agg.balance), 
+            smooth = 15, size = 1, 
+            color = unique(birdIDs_color22$unicol[birdIDs_color22$id==focaltrial5]), 
+            inherit.aes = F) 
+  # geom_text(data = fsumm.indiv.aggs22.power %>% filter(group==1,id == focaltrial5 ,bin == min(bin) ),
+  #           aes(x = bin - 1.5, label = focaltrial5 ),
+  #           color = unique(birdIDs_color22$unicol[birdIDs_color22$id==focaltrial5]), 
+  #           size = 10, hjust = 0)  
+plottrial5
+    
+
+#  removal bin 11 and 12
+focaltrial6 <- "BBB"
+plottrial6 <- plottrial5 +  
+  geom_point(data = fsumm.indiv.aggs22.power %>% filter(group==1,id==focaltrial6 , bin==22),
+             mapping = aes(x=bin, y=agg.balance), 
+             smooth = 15, size = 2, shape = 21, color="black",
+             fill = unique(birdIDs_color22$unicol[birdIDs_color22$id==focaltrial6]), 
+             inherit.aes = F) +
+  geom_point(data =fsumm.indiv.aggs22.power %>% filter(group==1,id==focaltrial6 , bin==25),
+             mapping = aes(x=bin, y=agg.balance), 
+             smooth = 15, size = 2, shape = 23, color="black",
+             fill = unique(birdIDs_color22$unicol[birdIDs_color22$id==focaltrial6]), 
+             inherit.aes = F) +
+  geom_bump(data = fsumm.indiv.aggs22.power %>% filter(group==1,id == focaltrial6 , bin<23), 
+            mapping = aes(x=bin, y=agg.balance), 
+            smooth = 15, size = 1, 
+            color = unique(birdIDs_color22$unicol[birdIDs_color22$id==focaltrial6]),
+            inherit.aes = F) + 
+  geom_bump(data =fsumm.indiv.aggs22.power %>% filter(group==1,id == focaltrial6 , bin>24), 
+            mapping = aes(x=bin, y=agg.balance), 
+            smooth = 15, size = 1, 
+            color = unique(birdIDs_color22$unicol[birdIDs_color22$id==focaltrial6]), 
+            inherit.aes = F) 
+  # geom_text(data = fsumm.indiv.aggs22.power %>% filter(group==1,id == focaltrial6 ,bin == min(bin) ),
+  #           aes(x = bin - 1.5, label = focaltrial6 ),
+  #           color = unique(birdIDs_color22$colorXbird[birdIDs_color22$id==focaltrial6]), 
+  #           size = 10, hjust = 0)  
+plottrial6
+
+plot22_group1 <- plottrial6 + labs(title = "(c) Group 2022-1")
+
+ggsave("./figures/fig_balanceXtime_2022-1.pdf", width = 18, height = 3) 
+
+#ggsave("./figures/plot_rank_MS.pdf", width = 15, height = 8)
+
+```
+
+2022 group 2
+```{r}
+
+focalsgroup2<- filter(focals22, group=="2_east") 
+
+balance_22_g2_nonfocals <- fsumm.indiv.aggs22.power  %>% 
+  filter( group==2, !id %in% focalsgroup2$focal )
+unique(balance_22_g2_nonfocals$id)
+length(unique(balance_22_g2_nonfocals$id))
+unique(balance_22_g2_nonfocals$group)
+
+colors_nonfocals <- birdIDs_color22 %>% 
+  filter(!id %in% focalsgroup2$focal )
+
+# plot all 
+g2plot <- ggplot(balance_22_g2_nonfocals, aes(x=bin, y=agg.balance, color=id)) +
+  geom_bump(size = 1, smooth = 15, alpha = 0.2) +
+  #facet_wrap(~group, nrow = 2) +  # split by group
+  
+  scale_x_continuous( breaks = seq(1,26,1)) +
+  #scale_y_continuous( limits = c(0, 1.0), breaks = seq(0.0,1.00,0.25)) +
+  #scale_y_reverse() +
+  scale_colour_manual(values = unique(birdIDs_color22$unicol)) + #colorXbird; custom_palette
+  #ggtitle("dominance: eigenvector centrality") +
+  labs(x="Social dominance assessment periods", y = "Aggression balance") + #, subtitle = "Group 2022-2"
+
+  theme_classic() + theme(legend.position = "none",
+                          text = element_text(size=16),
+         axis.text = element_text(size=14)) +
+  geom_vline(xintercept = c(2.5,6.5, 10.5, 14.5, 18.5, 22.5 ), 
+             linetype="dashed", color =  alpha("black", 0.6)) + # removal   
+  geom_vline(xintercept = c(4.5, 8.5,12.5, 16.5, 20.5, 24.5),
+             linetype="solid", color =  alpha("black", 0.6))   # reintro
+
+
+g2plot
+
+# highlight focal birds
+# unique(power_plot_21$colorXbird[power_plot_21$id=="BBB"])
+
+
+
+# trial 1
+#focaltrial1 <- "BBO"
+g2plottrial1 <- g2plot +  #blue = "#1f78b4"/ magenta = "#8E0152"
+  geom_point(data = fsumm.indiv.aggs22.power  %>% 
+               filter(id==focalsgroup2$focal[focalsgroup2$trial==1] , bin==2),
+             mapping = aes(x=bin, y=agg.balance), 
+             smooth = 15, size = 2, shape = 21, color="black",
+             fill = unique(birdIDs_color22$unicol[birdIDs_color22$id==focalsgroup2$focal[focalsgroup2$trial==1]]), 
+             inherit.aes = F) +
+  geom_point(data = fsumm.indiv.aggs22.power  %>% 
+               filter(id==focalsgroup2$focal[focalsgroup2$trial==1]  , bin==5),
+             mapping = aes(x=bin, y=agg.balance), 
+             smooth = 15, size = 2, shape = 23, color="black",
+             fill = unique(birdIDs_color22$unicol[birdIDs_color22$id==focalsgroup2$focal[focalsgroup2$trial==1] ]), inherit.aes = F) +
+  geom_bump(data = fsumm.indiv.aggs22.power %>% 
+              filter(id == focalsgroup2$focal[focalsgroup2$trial==1]  , bin<3), 
+            mapping = aes(x=bin, y=agg.balance), 
+            smooth = 15, size = 1, 
+            color = unique(birdIDs_color22$unicol[birdIDs_color22$id==focalsgroup2$focal[focalsgroup2$trial==1] ]),
+            inherit.aes = F) + 
+  geom_bump(data = fsumm.indiv.aggs22.power %>% 
+              filter(id == focalsgroup2$focal[focalsgroup2$trial==1] , bin>4), 
+            mapping = aes(x=bin, y=agg.balance), 
+            smooth = 15, size = 1, 
+            color = unique(birdIDs_color22$unicol[birdIDs_color22$id==focalsgroup2$focal[focalsgroup2$trial==1] ]), 
+            inherit.aes = F) 
+  # geom_text(data = fsumm.indiv.aggs22.power %>% 
+  #             filter(id == focalsgroup2$focal[focalsgroup2$trial==1], bin == min(bin) ),
+  #           aes(x = bin - 1.5, label = focalsgroup2$focal[focalsgroup2$trial==1]  ),
+  #           color = unique(birdIDs_color22$unicol[birdIDs_color22$id==focalsgroup2$focal[focalsgroup2$trial==1] ]), 
+  #           size = 10, hjust = 0)  #, fontface = "bold"
+
+ 
+g2plottrial1
+
+#  removal bin 7 and 8
+#focaltrial2 <- "OBB"
+g2plottrial2 <- g2plottrial1 +  
+  geom_point(data = fsumm.indiv.aggs22.power  %>% 
+             filter(id==focalsgroup2$focal[focalsgroup2$trial==2]  , bin==6),
+             mapping = aes(x=bin, y=agg.balance), 
+             smooth = 15, size = 2, shape = 21, color="black",
+             fill = unique(birdIDs_color22$unicol[birdIDs_color22$id==focalsgroup2$focal[focalsgroup2$trial==2]]), 
+             inherit.aes = F) +
+  geom_point(data = fsumm.indiv.aggs22.power  %>% 
+               filter(id==focalsgroup2$focal[focalsgroup2$trial==2] , bin==9),
+             mapping = aes(x=bin, y=agg.balance), 
+             smooth = 15, size = 2, shape = 23, color="black", 
+             fill = unique(birdIDs_color22$unicol[birdIDs_color22$id==focalsgroup2$focal[focalsgroup2$trial==2]]), 
+             inherit.aes = F) +
+  geom_bump(data = fsumm.indiv.aggs22.power %>% 
+              filter(id == focalsgroup2$focal[focalsgroup2$trial==2] , bin<7), 
+            mapping = aes(x=bin, y=agg.balance), 
+            smooth = 15, size = 1, 
+            color = unique(birdIDs_color22$unicol[birdIDs_color22$id==focalsgroup2$focal[focalsgroup2$trial==2]]),
+            inherit.aes = F) + 
+  geom_bump(data = fsumm.indiv.aggs22.power %>% 
+              filter(id == focalsgroup2$focal[focalsgroup2$trial==2], bin>8), 
+            mapping = aes(x=bin, y=agg.balance), 
+            smooth = 15, size = 1, 
+            color = unique(birdIDs_color22$unicol[birdIDs_color22$id==focalsgroup2$focal[focalsgroup2$trial==2]]), 
+            inherit.aes = F) 
+  # geom_text(data = fsumm.indiv.aggs22.power %>% 
+  #             filter(id == focalsgroup2$focal[focalsgroup2$trial==2] ,bin == min(bin) ),
+  #           aes(x = bin - 1.5, label = focalsgroup2$focal[focalsgroup2$trial==2]),
+  #           color = unique(birdIDs_color22$unicol[birdIDs_color22$id==focalsgroup2$focal[focalsgroup2$trial==2]]), 
+  #           size = 10, hjust = 0)  
+g2plottrial2
+    
+
+#  removal bin 11 and 12
+#focaltrial3 <- "PBP"
+g2plottrial3 <- g2plottrial2 +  
+  geom_point(data = fsumm.indiv.aggs22.power  %>% 
+               filter(id==focalsgroup2$focal[focalsgroup2$trial==3] , bin==10),
+             mapping = aes(x=bin, y=agg.balance), 
+             smooth = 15, size = 2, shape = 21, color="black",
+             fill = unique(birdIDs_color22$unicol[birdIDs_color22$id==focalsgroup2$focal[focalsgroup2$trial==3]]), 
+             inherit.aes = F) +
+  geom_point(data = fsumm.indiv.aggs22.power  %>% 
+               filter(id==focalsgroup2$focal[focalsgroup2$trial==3] , bin==13),
+             mapping = aes(x=bin, y=agg.balance), 
+             smooth = 15, size = 2, shape = 23, color="black",
+             fill = unique(birdIDs_color22$unicol[birdIDs_color22$id==focalsgroup2$focal[focalsgroup2$trial==3]]), 
+             inherit.aes = F) +
+  geom_bump(data = fsumm.indiv.aggs22.power %>% 
+              filter(id == focalsgroup2$focal[focalsgroup2$trial==3], bin<11), 
+            mapping = aes(x=bin, y=agg.balance), 
+            smooth = 15, size = 1, 
+            color = unique(birdIDs_color22$unicol[birdIDs_color22$id==focalsgroup2$focal[focalsgroup2$trial==3]]),
+            inherit.aes = F) + 
+  geom_bump(data = fsumm.indiv.aggs22.power %>% filter(id == focalsgroup2$focal[focalsgroup2$trial==3] , bin>12), 
+            mapping = aes(x=bin, y=agg.balance), 
+            smooth = 15, size = 1, 
+            color = unique(birdIDs_color22$unicol[birdIDs_color22$id==focalsgroup2$focal[focalsgroup2$trial==3]]), 
+            inherit.aes = F) 
+  # geom_text(data = fsumm.indiv.aggs22.power %>% 
+  #             filter(id == focalsgroup2$focal[focalsgroup2$trial==3] ,bin == min(bin) ),
+  #           aes(x = bin - 1.5, label = focalsgroup2$focal[focalsgroup2$trial==3]),
+  #           color = unique(birdIDs_color22$unicol[birdIDs_color22$id==focalsgroup2$focal[focalsgroup2$trial==3]]), 
+  #           size = 10, hjust = 0)  
+plottrial3
+
+# trial 4, bin 15 and 16
+#focaltrial4 <- "GOO"
+g2plottrial4 <- g2plottrial3 +  
+  geom_point(data = fsumm.indiv.aggs22.power  %>% 
+               filter(id==focalsgroup2$focal[focalsgroup2$trial==4], bin==14),
+             mapping = aes(x=bin, y=agg.balance), 
+             smooth = 15, size = 2, shape = 21, color="black",
+             fill = unique(birdIDs_color22$unicol[birdIDs_color22$id==focalsgroup2$focal[focalsgroup2$trial==4]]), 
+             inherit.aes = F) +
+  geom_point(data = fsumm.indiv.aggs22.power  %>% 
+               filter(id==focalsgroup2$focal[focalsgroup2$trial==4] , bin==17),
+             mapping = aes(x=bin, y=agg.balance), 
+             smooth = 15, size = 2, shape = 23, color="black",
+             fill = unique(birdIDs_color22$unicol[birdIDs_color22$id==focalsgroup2$focal[focalsgroup2$trial==4]]), 
+             inherit.aes = F) +
+  geom_bump(data = fsumm.indiv.aggs22.power %>% 
+              filter(id == focalsgroup2$focal[focalsgroup2$trial==4], bin<15), 
+            mapping = aes(x=bin, y=agg.balance), 
+            smooth = 15, size = 1, 
+            color = unique(birdIDs_color22$unicol[birdIDs_color22$id==focalsgroup2$focal[focalsgroup2$trial==4]]),
+            inherit.aes = F) + 
+  geom_bump(data = fsumm.indiv.aggs22.power %>% 
+              filter(id == focalsgroup2$focal[focalsgroup2$trial==4], bin>16), 
+            mapping = aes(x=bin, y=agg.balance), 
+            smooth = 15, size = 1, 
+            color = unique(birdIDs_color22$unicol[birdIDs_color22$id==focalsgroup2$focal[focalsgroup2$trial==4]]), 
+            inherit.aes = F) 
+  # geom_text(data = fsumm.indiv.aggs22.power %>% 
+  #             filter(id == focalsgroup2$focal[focalsgroup2$trial==4] ,bin == min(bin) ),
+  #           aes(x = bin - 1.5, label = focalsgroup2$focal[focalsgroup2$trial==4] ),
+  #           color = unique(birdIDs_color22$unicol[birdIDs_color22$id==focalsgroup2$focal[focalsgroup2$trial==4]]), 
+  #           size = 10, hjust = 0)  
+ 
+g2plottrial4
+
+#  removal bin 7 and 8
+#focaltrial5 <- "OGO"
+g2plottrial5 <- g2plottrial4 +  
+  geom_point(data = fsumm.indiv.aggs22.power  %>% 
+               filter(id==focalsgroup2$focal[focalsgroup2$trial==5], bin==18),
+             mapping = aes(x=bin, y=agg.balance), 
+             smooth = 15, size = 2, shape = 21, color="black",
+             fill = unique(birdIDs_color22$unicol[birdIDs_color22$id==focalsgroup2$focal[focalsgroup2$trial==5]]), 
+             inherit.aes = F) +
+  geom_point(data = fsumm.indiv.aggs22.power  %>% 
+               filter(id==focalsgroup2$focal[focalsgroup2$trial==5] , bin==21),
+             mapping = aes(x=bin, y=agg.balance), 
+             smooth = 15, size = 2, shape = 23, color="black",
+             fill = unique(birdIDs_color22$unicol[birdIDs_color22$id==focalsgroup2$focal[focalsgroup2$trial==5]]), 
+             inherit.aes = F) +
+  geom_bump(data = fsumm.indiv.aggs22.power %>% 
+              filter(id == focalsgroup2$focal[focalsgroup2$trial==5] , bin<19), 
+            mapping = aes(x=bin, y=agg.balance), 
+            smooth = 15, size =1, 
+            color = unique(birdIDs_color22$unicol[birdIDs_color22$id==focalsgroup2$focal[focalsgroup2$trial==5]]),
+            inherit.aes = F) + 
+  geom_bump(data = fsumm.indiv.aggs22.power %>% 
+              filter(id == focalsgroup2$focal[focalsgroup2$trial==5] , bin>20), 
+            mapping = aes(x=bin, y=agg.balance), 
+            smooth = 15, size = 1, 
+            color = unique(birdIDs_color22$unicol[birdIDs_color22$id==focalsgroup2$focal[focalsgroup2$trial==5]]), 
+            inherit.aes = F) 
+  # geom_text(data = fsumm.indiv.aggs22.power %>% 
+  #             filter(id == focalsgroup2$focal[focalsgroup2$trial==5] ,bin == min(bin) ),
+  #           aes(x = bin - 1.5, label = focalsgroup2$focal[focalsgroup2$trial==5] ),
+  #           color = unique(birdIDs_color22$unicol[birdIDs_color22$id==focalsgroup2$focal[focalsgroup2$trial==5]]), 
+  #           size = 10, hjust = 0)  
+g2plottrial5
+    
+
+#  
+#focaltrial6 <- "GOP"
+g2plottrial6 <- g2plottrial5 +  
+  geom_point(data = fsumm.indiv.aggs22.power  %>% 
+               filter(id==focalsgroup2$focal[focalsgroup2$trial==6], bin==22),
+             mapping = aes(x=bin, y=agg.balance), 
+             smooth = 15, size = 2, shape = 21, color="black",
+             fill = unique(birdIDs_color22$unicol[birdIDs_color22$id==focalsgroup2$focal[focalsgroup2$trial==6]]), 
+             inherit.aes = F) +
+  geom_point(data = fsumm.indiv.aggs22.power  %>% 
+               filter(id==focalsgroup2$focal[focalsgroup2$trial==6] , bin==25),
+             mapping = aes(x=bin, y=agg.balance), 
+             smooth = 15, size = 2, shape = 23, color="black",
+             fill = unique(birdIDs_color22$unicol[birdIDs_color22$id==focalsgroup2$focal[focalsgroup2$trial==6]]), 
+             inherit.aes = F) +
+  geom_bump(data = fsumm.indiv.aggs22.power %>% 
+              filter(id == focalsgroup2$focal[focalsgroup2$trial==6] , bin<23), 
+            mapping = aes(x=bin, y=agg.balance), 
+            smooth = 15, size = 1, 
+            color = unique(birdIDs_color22$unicol[birdIDs_color22$id==focalsgroup2$focal[focalsgroup2$trial==6]]),
+            inherit.aes = F) + 
+  geom_bump(data = fsumm.indiv.aggs22.power %>% 
+              filter(id == focalsgroup2$focal[focalsgroup2$trial==6] , bin>24), 
+            mapping = aes(x=bin, y=agg.balance), 
+            smooth = 15, size = 1, 
+            color = unique(birdIDs_color22$unicol[birdIDs_color22$id==focalsgroup2$focal[focalsgroup2$trial==6]]), 
+            inherit.aes = F) 
+  # geom_text(data = fsumm.indiv.aggs22.power %>% 
+  #             filter(id == focalsgroup2$focal[focalsgroup2$trial==6] ,bin == min(bin) ),
+  #           aes(x = bin - 1.5, label = focalsgroup2$focal[focalsgroup2$trial==6] ),
+  #           color = unique(birdIDs_color22$unicol[birdIDs_color22$id==focalsgroup2$focal[focalsgroup2$trial==6]]), 
+  #           size = 10, hjust = 0)  
+g2plottrial6
+
+plot22_group2 <- g2plottrial6 + labs(title = "(d) Group 2022-2")
+
+ggsave("./figures/fig_balanceXtime_2022-2.pdf", width = 18, height = 3) 
+```
+
+##combine plots
+```{r}
+ggpubr::ggarrange( ggarrange( plot_aggdyna20+ rremove("xlab"), #+ rremove("ylab"),
+                              plot_aggXtime2021 + rremove("xlab") + rremove("ylab") + rremove("y.text"), 
+                              ncol=2, labels=c("(a) Group 2020", "(b) Group 2021"),
+                              widths = c(0.8,2), font.label = list(face ="plain")),
+          plot22_group1+ rremove("xlab"),
+          plot22_group2, #+ rremove("ylab"), 
+          nrow = 3,  #align="v",
+          labels = c("", "(c) Group 2022-1", "(d) Group 2022-2"),
+          font.label = list(face ="plain"))
+
+ggsave("./figures/fig_balanceXtime_v1.pdf", width = 18, height = 18) #, width = 18, height = 9
+```
+
+
+## combined
+
+```{r}
+glimpse( fsumm.indiv.aggs20)
+glimpse( fsumm.indiv.aggs21a)
+glimpse(fsumm.indiv.aggs)
+glimpse(fsumm.indiv.aggs22.power)
+
+fsumm.indiv.aggs <- fsumm.indiv.aggs %>% 
+  mutate(focal=if_else(id=="BBB" & bin %in% c(11,14), "focal", 
+                       if_else(id=="GPG"& bin %in% c(15,18), "focal",
+                               if_else(id=="OPP" & bin %in% c(19, 22), "focal", "nonfocal"))),
+         focalrank="top-ranked",
+         group="2021")%>% 
+    dplyr::select(group, bin, id, agg.balance, focal, focalrank)
+
+fsumm.indiv.aggs22 <- fsumm.indiv.aggs22.power %>%
+  filter(!bin %in% c(1,26)) %>% 
+  mutate(group= recode(group, '1'="2022-1", '2'="2022-2"),
+         focalrank= if_else(bin %in% c(2,3,4,5,14,15,16,17,22,23,24,25), "top-ranked", 
+                            if_else(bin %in% c(1,26), "non-experimental", "middle/low-ranked")),
+    focal=if_else(id=="PBO" & bin %in% c(2,5) & group=="2022-1", "focal", 
+              if_else(id=="GPO" & bin %in% c(14,17) & group=="2022-1", "focal",
+                  if_else(id=="BBB" &bin%in% c(22,25) & group=="2022-1", "focal", 
+                      if_else(id=="OOO"& bin%in% c(6,9) & group=="2022-1", "focal", 
+                              if_else(id=="PGG"& bin%in% c(10,13) & group=="2022-1", "focal",
+                                      if_else(id=="OPP"&bin%in% c(18,21) & group=="2022-1", "focal",
+          if_else(id=="BBO" & bin %in% c(2,5) & group=="2022-2", "focal", 
+            if_else(id=="GOO"& bin%in% c(14,17) & group=="2022-2", "focal",
+              if_else(id=="GOP" & bin%in% c(22,25) & group=="2022-2", "focal", 
+                      if_else(id=="OBB"& bin%in% c(6,9) & group=="2022-2", "focal", 
+                              if_else(id=="PBP"& bin%in% c(10,13) & group=="2022-2", "focal",
+                                      if_else(id=="OGO"& bin%in% c(18,21) & group=="2022-2", "focal","nonfocal")
+                                      )))))))))))) %>% 
+    dplyr::select(group, bin, id, agg.balance, focal, focalrank)
+
+
+agg_balance <- bind_rows(fsumm.indiv.aggs20, fsumm.indiv.aggs21a, fsumm.indiv.aggs, fsumm.indiv.aggs22.power) %>% 
+  mutate(agg.balance1=if_else(agg.balance==0, 0.0001, 
+                              if_else(agg.balance==1, 0.9999, agg.balance))) 
+
+
+range(agg_balance$agg.balance1)
+
+
+beta_agg <- glmmTMB(agg.balance1 ~ focal * focalrank + group + (1|bin) + (1|id), 
+                    family = beta_family(),
+                    data=agg_balance
+                    )
+beta_agg1 <- glmmTMB(agg.balance1 ~ focal * focalrank + group  + (1|id), 
+                    family = beta_family(),
+                    data=agg_balance
+                    )
+beta_agg2 <- glmmTMB(agg.balance1 ~ focal + focalrank + group  + (1|id), 
+                    family = beta_family(),
+                    data=agg_balance
+                    )
+
+AIC(beta_agg, beta_agg1, beta_agg2)
+
+# model diagnostics
+modsim <- DHARMa::simulateResiduals(beta_agg1)
+
+plot(modsim)
+
+
+summary(beta_agg1)
+
+```
+
+
+
+# Change in aggression balance  
+
+## 2021
+
+```{r}
+## balance change
+  
+obs_agg_change <- fsumm.indiv.aggs %>%
+  #dplyr::select(group, bin, focalrank, obspattern) %>% #group, 
+  group_by(id) %>% #group_by(group) 
+  filter(bin %in% bin21_before_after) %>%
+  mutate(obs_after=lead(agg.balance),
+         obs_change = obs_after-agg.balance) %>% # so that increase in aggression balance is positive and decrease is negative   
+  rename(before=agg.balance,
+         after=obs_after, 
+         change=obs_change) %>% 
+  filter(bin %in% bin21_keep) %>% 
+  mutate(focal=if_else(id=="BBB" & bin==11, "focal", 
+                       if_else(id=="GPG"& bin==15, "focal",
+                               if_else(id=="OPP" &bin==19, "focal", "nonfocal"))),
+         focalrank="top-ranked",
+         group="2021") %>% 
+  dplyr::select(-key)
+
+
+plot_aggbalance <- ggplot(obs_agg_change , aes(y=change, x=focal)) + #, color=focalrank
+   # geom_violin(width=0.5, color="black")+
+  geom_hline(yintercept=0, col = "lightgray") +
+  geom_half_boxplot(aes(fill = focal), side = "r", width=0.2) +
+  geom_half_point(aes(color=focal), side = "l", size = 2, alpha = 1) +
+  theme_classic() +
+  #scale_y_continuous(limits = c(0,1200)) +
+  #scale_color_manual( values=alpha(c("#fdae61", "#0571b0"),0.4)) +
+  labs(y="Aggression balance change",
+       x="Focal") +
+       #title = "Change in aggression balance before removal vs upon reintroduction") +
+  theme(#axis.text = element_text(size=18),
+        #title = element_text(size=20),
+        legend.position = "none")  +
+  scale_color_manual( values=c("#fdae61",alpha("#fdae61", 0.4))) + # "#0571b0"
+  scale_fill_manual( values=c("#fdae61", alpha("#fdae61", 0.4))) +
+  scale_y_continuous(limits=c(-1.0, 1.0))
+plot_aggbalance
+ggsave("figures/plot_aggressionbalancechange.pdf", width=5, height = 3) #
+
+
+hist(obs_agg_change$change)
+
+wilcox.test(obs_agg_change$change~obs_agg_change$focal)
+
+summ.aggchange <- obs_agg_change%>% 
+  group_by(focal) %>% 
+  summarize(mean=mean(change), 
+            sd =sd(change), 
+            n=n(),
+            se=sd/sqrt(n))
+
+
+## differrence in balance
+
+
+obs_agg_change_long  <- obs_agg_change %>% 
+  select(id, before, after, focal) %>% 
+  pivot_longer(cols = before:after, names_to = "period", values_to = "balance") 
+obs_agg_change_long$period <- factor(obs_agg_change_long$period, levels = c("before", "after"),
+                              labels = c("before removal", "upon reintroduction"))
+
+summ.aggbalance <- obs_agg_change_long %>% 
+  group_by(focal, period) %>% 
+  summarize(mean=mean(balance), 
+            sd =sd(balance), 
+            n=n(),
+            se=sd/sqrt(n),
+            meanse_l = mean - se,
+            meanse_u = mean + se
+  )
+
+plot_aggbalance_change <-   ggplot(summ.aggbalance,  aes(x=period, y=mean, group=focal)) + 
+  geom_point() +
+  geom_line(color="black", size=1)+
+  geom_errorbar( aes(ymin = meanse_l, ymax = meanse_u), width=0.1) +
+  
+  #Add the individual data points
+
+  geom_line(data = obs_agg_change_long, aes(y=balance, x=period, group = id), 
+            color='gray', alpha=0.4) + 
+    geom_point(data = obs_agg_change_long,  aes(y=balance, x=period, group=focal, color=focal), alpha=0.4) +
+   
+  # customization
+  facet_grid(~focal) +
+  scale_color_manual( values=c("#fdae61",alpha("#fdae61", 0.4))) + # "#0571b0"
+  scale_fill_manual( values=c("#fdae61", alpha("#fdae61", 0.4))) + # "#0571b0"
+  theme_classic() +theme( strip.background  = element_blank(),
+                      panel.grid.major = element_blank(),
+                      panel.border = element_blank(),
+                      axis.ticks = element_blank(),
+                      panel.grid.minor.x=element_blank(),
+                      panel.grid.major.x=element_blank() ) +
+  labs(y="aggression balance") +
+  theme(legend.position="bottom")
+  
+
+plot_aggbalance_change
+
+ggsave("figures/plot_aggressionbalance.pdf", width=5, height = 3) #
+
+
+# difference in balance
+obs_agg_change_long <- obs_agg_change_long %>% 
+  mutate(balance_beta= if_else(balance==0, 0.001, 
+                               if_else(balance==1, 0.999, balance)))
+
+model_beta21 <- betareg(balance_beta ~ period * focal, 
+                      data = obs_agg_change_long, 
+                      link = "logit")
+tidy(model_beta)
+summary(model_beta21)
+
+```
+
+
+## 2022
+```{r agg balance change 2022}
+ # change in aggression balance before vs after
+ 
+ bin22_before_after <- c(2,5,6,9,10,13,14,17,18,21,22,25)
+ bin22_keep <- c(2, 6,10,14,18,22)
+ 
+ 
+ ## group 1
+ 
+#  2022-1; top
+# trial 1 = PBO
+# trial 4 = GPO
+# trial 6 = BBB
+# 
+# middle/low-ranked trials
+# 2022-1
+# trial 2 = OOO
+# trial 3 = PGG
+# trial 5 = OPP
+ 
+  obs_agg_change22_g1 <- fsumm.indiv.aggs22.power %>%
+    filter(group==1) %>% 
+  #dplyr::select(group, bin, focalrank, obspattern) %>% #group, 
+  group_by(id) %>% #group_by(group) 
+  filter(bin %in% bin22_before_after) %>%
+  mutate(obs_after=lead(agg.balance),
+         obs_change = obs_after-agg.balance) %>% # so that increase in aggression balance is positive and decrease is negative   
+  rename(before=agg.balance,
+         after=obs_after, 
+         change=obs_change) %>% 
+  filter(bin %in% bin22_keep) %>% 
+  mutate( focalrank= if_else(bin %in% c(2,14,22), "top-ranked", "middle/low-ranked"),
+    focal=if_else(id=="PBO" & bin==2, "focal", 
+            if_else(id=="GPO"& bin==14, "focal",
+              if_else(id=="BBB" &bin==22, "focal", 
+                      if_else(id=="OOO"&bin==6, "focal", 
+                              if_else(id=="PGG"&bin==10, "focal",
+                                      if_else(id=="OPP"&bin==18, "focal","nonfocal")))))))
+
+  ## group 2
+#   2022-2 ; top
+# trial 1 = BBO
+# trial 4 = GOO
+# trial 6 = GOP
+# 
+# 2022-2; m/l
+# trial 2 = OBB
+# trial 3 = PBP
+# trial 5 = OGO
+  
+  obs_agg_change22_g2 <- fsumm.indiv.aggs22.power %>%
+    filter(group==2) %>% 
+  #dplyr::select(group, bin, focalrank, obspattern) %>% #group, 
+  group_by(id) %>% #group_by(group) 
+  filter(bin %in% bin22_before_after) %>%
+  mutate(obs_after=lead(agg.balance),
+         obs_change = obs_after-agg.balance) %>% # so that increase in aggression balance is positive and decrease is negative   
+  rename(before=agg.balance,
+         after=obs_after, 
+         change=obs_change) %>% 
+  filter(bin %in% bin22_keep) %>% 
+  mutate( focalrank= if_else(bin %in% c(2,14,22), "top-ranked", "middle/low-ranked"),
+    focal=if_else(id=="BBO" & bin==2, "focal", 
+            if_else(id=="GOO"& bin==14, "focal",
+              if_else(id=="GOP" &bin==22, "focal", 
+                      if_else(id=="OBB"&bin==6, "focal", 
+                              if_else(id=="PBP"&bin==10, "focal",
+                                      if_else(id=="OGO"&bin==18, "focal","nonfocal")))))))
+  ## combined
+  obs_agg_change22 <- bind_rows(obs_agg_change22_g1,
+                                obs_agg_change22_g2) %>% 
+  unite(cat, c(focalrank, focal), sep=".", remove=FALSE)
+
+  
+  obs_agg_change22$focalrank <- factor(obs_agg_change22$focalrank, 
+                                       levels = c("top-ranked", "middle/low-ranked"))
+  
+  obs_agg_change22$cat <- factor(obs_agg_change22$cat, 
+                                       levels = c("top-ranked.focal", "top-ranked.nonfocal",
+                                                  "middle/low-ranked.focal", "middle/low-ranked.nonfocal"))
+
+plot_aggbalance22 <- ggplot(obs_agg_change22 , aes(y=change, x=cat)) + #, color=focalrank, x=focal
+   # geom_violin(width=0.5, color="black")+
+  geom_hline(yintercept=0, col = "lightgray") +
+  geom_half_boxplot(aes(fill = cat), side = "r", width=0.2) +
+  geom_half_point(aes(color=cat), side = "l", size = 2) +
+  theme_classic() +
+  #scale_y_continuous(limits = c(0,1200)) +
+  #scale_color_manual( values=alpha(c("#fdae61", "#0571b0"),0.4)) +
+  labs(y="Aggression balance change",
+       x="Focal") +
+       #title = "Change in aggression balance before removal vs upon reintroduction") +
+  theme(#axis.text = element_text(size=18),
+        #title = element_text(size=20),
+        legend.position = "bottom")  +
+  scale_color_manual( values=c("#fdae61",alpha("#fdae61", 0.4), "#0571b0", alpha("#0571b0", 0.4))) +
+   scale_fill_manual( values=c("#fdae61",alpha("#fdae61", 0.4), "#0571b0", alpha("#0571b0", 0.4))) +
+ # facet_grid(~focalrank) +
+  theme( strip.background  = element_blank(),
+                      panel.grid.major = element_blank(),
+                      panel.border = element_blank(),
+                      axis.ticks = element_blank(),
+                      panel.grid.minor.x=element_blank(),
+                      panel.grid.major.x=element_blank() ) +
+  scale_y_continuous(limits=c(-1.0, 1.0))
+plot_aggbalance22
+ggsave("figures/plot_aggressionbalancechange22_v3.pdf", width=5, height = 3) #
+
+
+# change ~ focal*focalrank
+ 
+  hist(obs_agg_change22$change)
+range(obs_agg_change22$change)
+
+obs_agg_change22 <- obs_agg_change22 %>% 
+  unite(cat, c(focal, focalrank), sep="-", remove=FALSE)
+
+#install.packages("dunn.test")
+dunn.test::dunn.test(obs_agg_change22$change, obs_agg_change22$cat, method="bh")
+
+
+## Differenc in balance
+
+obs_agg_change_long22  <- obs_agg_change22 %>% 
+  select(id, before, after, focal, focalrank) %>% 
+  pivot_longer(cols = before:after, names_to = "period", values_to = "balance") 
+
+obs_agg_change_long22$period <- factor(obs_agg_change_long22$period, 
+                                       levels = c("before", "after"),
+                                       labels = c("before removal", "upon reintroduction"))
+obs_agg_change_long22$focalrank <- factor(obs_agg_change_long22$focalrank, 
+                                       levels = c("top-ranked", "middle/low-ranked"))
+
+
+  
+plot_aggbalance_change22 <-   ggplot(obs_agg_change_long22,  aes(y=balance, x=period, group=focal, color=focalrank)) + #, color=focalrank
+  #geom_violin(width=0.5, color="black")+
+  #geom_boxplot(aes(x= period, group=focal), width=0.2) +
+
+  # geom_line() joins the paired datapoints 
+  # color and size parameters are used to customize line 
+  geom_line(aes(group = id), color='gray', alpha=0.6)+ 
+   
+  # geom_point() is used to make points at data values 
+  # fill and size parameters are used to customize point 
+  geom_point(aes(fill=focalrank,group=id),size=2,shape=21) +
+  #geom_jitter(  width=0.05) +
+ # geom_line(aes(group = id),color="grey") +
+
+  # customication
+  facet_grid(~focal) +
+    scale_color_manual( values=c("#fdae61", "#0571b0")) +
+   scale_fill_manual( values=c("#fdae61", "#0571b0")) +
+  theme_classic()
+plot_aggbalance_change22
+
+
+hist(obs_agg_change22$change)
+
+#wilcox.test(obs_agg_change$change~obs_agg_change$focal)
+
+summ.aggchange22 <- obs_agg_change22 %>% 
+  group_by(focal, focalrank) %>% 
+  summarize(mean=mean(change), 
+            sd =sd(change), 
+            n=n(),
+            se=sd/sqrt(n))
+
+
+summ.aggbalance22 <- obs_agg_change_long22 %>% 
+  group_by(focal, focalrank, period) %>% 
+  summarize(mean=mean(balance), 
+            sd =sd(balance), 
+            n=n(),
+            se=sd/sqrt(n),
+            meanse_l = mean - se,
+            meanse_u = mean + se
+  )
+
+plot_aggbalance_change22 <-   ggplot(summ.aggbalance22,  aes(x=period, y=mean, group=focal)) + 
+  geom_point() +
+  geom_line(color="black", size=1)+
+  geom_errorbar( aes(ymin = meanse_l, ymax = meanse_u), width=0.1) +
+  
+  #Add the individual data points
+
+  geom_line(data = obs_agg_change_long22, aes(y=balance, x=period, group = id), 
+            color='gray', alpha=0.4) + 
+  geom_point(data = obs_agg_change_long22,  
+               aes(y=balance, x=period, group=focalrank, color=focal, alpha=focalrank)) + #, alpha=focal
+   
+  # customization
+  facet_grid(~focalrank*focal) +
+  scale_color_manual( values=c("#fdae61", "#0571b0")) +
+  scale_fill_manual( values=c("#fdae61", "#0571b0")) +
+  scale_alpha_manual(values = c(1.,0.4))+
+  theme_classic() +theme( strip.background  = element_blank(),
+                      panel.grid.major = element_blank(),
+                      panel.border = element_blank(),
+                      axis.ticks = element_blank(),
+                      panel.grid.minor.x=element_blank(),
+                      panel.grid.major.x=element_blank() ) +
+  labs(y="aggression balance") +
+  theme(legend.position="bottom")
+  
+plot_aggbalance_change22
+
+
+ggsave("figures/plot_aggressionbalance22_colordiff.pdf", width=5, height = 3) #
+
+
+ # check
+
+ ggplot(data = obs_agg_change_long22) +
+  geom_line(aes(y=balance, x=period, group = id), color='gray', alpha=0.4) + 
+  geom_point(aes(y=balance, x=period, group=focal, color=focalrank, alpha=focal)) +
+   
+  # customization
+  facet_grid(~focalrank*focal) +
+  scale_color_manual( values=c("#fdae61", "#0571b0")) +
+  scale_fill_manual( values=c("#fdae61", "#0571b0")) +
+  scale_alpha_manual(values = c(1.,0.4))+
+  theme_classic() +theme( strip.background  = element_blank(),
+                      panel.grid.major = element_blank(),
+                      panel.border = element_blank(),
+                      axis.ticks = element_blank(),
+                      panel.grid.minor.x=element_blank(),
+                      panel.grid.major.x=element_blank() ) +
+  labs(y="aggression balance") +
+  theme(legend.position="bottom")
+  
+
+ 
+  # balance~ period* focalrank*focal
+ 
+ hist(obs_agg_change_long22$balance)
+range(obs_agg_change_long22$balance)
+ 
+  obs_agg_change_long22$balance[obs_agg_change_long22$balance==1.00] <- 0.999
+ obs_agg_change_long22$balance[obs_agg_change_long22$balance==0.00] <- 0.001
+ 
+ model_beta <- betareg(balance ~ period * focal * focalrank, 
+                      data = obs_agg_change_long22, 
+                      link = "logit")
+tidy(model_beta)
+summary(model_beta)
+ 
+```
+
+
+## Abs change
+```{r}
+
+
+obs_agg_change$group <- as.factor(obs_agg_change$group)
+obs_agg_change22$group <- as.factor(obs_agg_change22$group)
+
+balance_change <- obs_agg_change22 %>% 
+  dplyr::select(-cat, -X) %>% 
+  bind_rows(obs_agg_change) %>% 
+  mutate(abs_change=abs(change),
+         group=recode(group, '1'="2022-1", '2'="2022-2", '2021'='2021') ) %>% 
+  unite(cat, c(focalrank, focal), sep=".", remove=FALSE)
+glimpse(balance_change)
+
+balance_change$focalrank <- factor(balance_change$focalrank, 
+                                 levels = c("top-ranked", "middle/low-ranked"),
+                                 labels = c("Top-\nranked", "Middle/low-\nranked"))
+balance_change$cat <- factor(balance_change$cat, 
+                                       levels = c("top-ranked.focal", "top-ranked.nonfocal",
+                                                  "middle/low-ranked.focal", "middle/low-ranked.nonfocal"))
+balance_change$focal <- factor(balance_change$focal, 
+                               levels = c("focal","nonfocal"),
+                               labels = c("Focal birds", "Group members"))
+
+
+summ_balance_focal <- balance_change %>%
+  group_by( focal) %>% # group_by(type, group) %>%
+  summarize(#mean=mean(change), 
+            #sd=sd(change),
+            #n=n(),
+            #se=sd/sqrt(n), 
+            #min=min(change),
+            #max=max(change),
+            #range = range(change),
+            mean_abs=mean(abs(change)), 
+            sd_abs=sd(abs(change)),
+            n_abs=n(),
+            se_abs=sd_abs/sqrt(n_abs),
+            min_abs=min(abs(change)),
+            max_abs=max(abs(change)))
+
+summ_balance_rank<- balance_change %>%
+  group_by( focalrank) %>% # group_by(type, group) %>%
+  summarize(#mean=mean(change), 
+            #sd=sd(change),
+            #n=n(),
+            #se=sd/sqrt(n), 
+            #min=min(change),
+            #max=max(change),
+            #range = range(change),
+            mean_abs=mean(abs(change)), 
+            sd_abs=sd(abs(change)),
+            n_abs=n(),
+            se_abs=sd_abs/sqrt(n_abs),
+            min_abs=min(abs(change)),
+            max_abs=max(abs(change)))
+
+
+summ_balance <- balance_change %>%
+  group_by( focal, focalrank) %>% # group_by(type, group) %>%
+  summarize(mean=mean(change), 
+            sd=sd(change),
+            n=n(),
+            se=sd/sqrt(n), 
+            min=min(change),
+            max=max(change),
+            #range = range(change),
+            mean_abs=mean(abs(change)), 
+            sd_abs=sd(abs(change)),
+            n_abs=n(),
+            se_abs=sd_abs/sqrt(n_abs),
+            min_abs=min(abs(change)),
+            max_abs=max(abs(change)))
+            #range_abs = range(abs(change)))
+
+```
+
+
+
+```{r}
+# normally distributed?
+# shapiro test p >0.05, data normally distributed
+ggpubr::ggqqplot(balance_change, "abs_change")
+shapiro.test(balance_change$abs_change)
+
+range(balance_change$abs_change)
+
+# distribution
+fitdistrplus::plotdist(balance_change$abs_change)
+fitdistrplus::descdist(balance_change$abs_change, discrete = FALSE)
+fit.beta <- fitdistrplus::fitdist(balance_change$abs_change, 'beta')
+plot(fit.beta)
+fit.beta$aic
+
+
+# model: abs balance change ~ focalrank (+ or *) focal + (1|group) + (1|id)
+beta_full <- glmmTMB(abs_change ~ focalrank*focal + (1|group) + (1|id),
+                     family = beta_family(), 
+                     data = balance_change)
+summary(beta_full)
+
+beta_change <- glmmTMB(abs_change ~ focalrank + focal + (1|group) + (1|id),
+                     family = beta_family(), 
+                     data = balance_change)
+summary(beta_change)
+
+beta0 <- glmmTMB(abs_change ~ 1 + (1|group) + (1|id), 
+           data = balance_change)
+summary(beta0)
+
+# AIC
+AIC(beta_full, beta_change, beta0)
+
+
+
+# model diagnostics
+modsim <- DHARMa::simulateResiduals(beta_full)
+
+plot(modsim)
+
+
+# p-values (focal=group/focals & focalrank=top/control)
+beta_focal <- glmmTMB(abs_change ~ focalrank + (1|group) + (1|id),
+                     family = beta_family(), 
+                     data = balance_change)
+lmtest::lrtest(beta_change, beta_focal) # being a focal results in greater abs balance change
+
+beta_rank<- glmmTMB(abs_change ~ focal + (1|group) + (1|id),
+                     family = beta_family(), 
+                     data = balance_change)
+lmtest::lrtest(beta_full, beta_rank) # trial rank affects abs balance change
+
+lmtest::lrtest(beta_full, beta_change) # interaction between focal rank and being a focal is significant. 
+
+
+
+
+summary(beta_full)
+
+
+```
+###plot
+```{r}
+# plot
+plot_deltabalance <- balance_change %>%
+
+ggplot( aes(x=factor(focalrank), y=abs_change, 
+            color=cat, fill=cat)) + #interaction(focalrank, focal)
+  
+  scale_color_manual(values = c("#ff6600ff",  "#b3b3b3ff", "#0571b0",alpha("#b3b3b3ff", 0.4))) +   
+  scale_fill_manual(values = c("#ff6600ff", "#b3b3b3ff","#0571b0", alpha("#b3b3b3ff", 0.4))) +  
+   
+  scale_y_continuous(limits = c(0.00,1.00)) + 
+  
+  # density
+   ggdist::stat_halfeye(
+    ## custom bandwidth
+    adjust = .5, 
+     ## adjust height
+    width = .4,
+    height = .4,
+    ## move geom to the right
+    justification = -.35, #-.1
+    ## remove slab interval
+    .width = 0, 
+    point_colour = NA
+    ##color
+    
+  ) +
+  
+  # boxplot
+  geom_boxplot(
+               color="black", fill="white",outlier.shape = NA,
+               width = .2, # 0.12
+  ) +
+  
+  # points
+  ggdist::stat_dots(
+    position = position_jitter(
+      seed = 1, width = .1
+    ),
+    layout="weave",
+    size=5, alpha =.7, 
+    #shape = 21, 
+    #point_fill=c("#ff6600ff","#b3b3b3ff"),
+    ## orientation to the left
+    side = "left",
+    ## move geom to the left
+    justification = 1.25,
+    ## adjust grouping (binning) of observations
+    binwidth = 0.01 # 0.01
+  ) +
+  
+  # facet 
+  facet_grid(cols=vars(focal)) +  # focal
+  #facet_grid(cols=vars(focal), rows=vars(group)) +  # focal X group
+  
+  # aesthetics
+  theme_classic() +
+  theme( legend.position = "none",
+         strip.background  = element_blank(),
+          strip.text = element_text(size=11),
+         axis.text = element_text(size=11),
+         panel.grid.major = element_blank(),
+         panel.border = element_blank(),
+         #axis.ticks = element_blank(),
+         panel.grid.minor.x=element_blank(),
+         panel.grid.major.x=element_blank() ) +
+  labs(x= "Trial", y = "Absolute aggression balance change") 
+  
+
+
+plot_deltabalance
+
+ggsave("./figures/plot_deltaXfocalXtrial.pdf", width = 6, height = 3)
+```
+
+
+2022-1; top
+trial 1 = PBO
+trial 4 = GPO
+trial 6 = BBB
+
+2022-2 ; top
+trial 1 = BBO
+trial 4 = GOO
+trial 6 = GOP
+
+middle/low-ranked trials
+2022-1
+trial 2 = OOO
+trial 3 = PGG
+trial 5 = OPP
+
+2022-2; m/l
+trial 2 = OBB
+trial 3 = PBP
+trial 5 = OGO
+
+
+# Directed aggression
+## Focal birds
+
+who are the focal birds?
+```{r}
+group21 <- power21 %>% 
+  filter(bin %in% bin_remove21, rank==1)
+
+```
+
+
+
+
+### who is top-ranked after reintroduction?
+
+```{r}
+group21 <- power21 %>% 
+  filter(bin %in% bin_reintro21, rank==1)
+
+group1 <- power22 %>%
+  filter(group==1, bin %in% c(5, 9, 13, 17, 21, 25), rank==1) %>% 
+  mutate(trial=c(1,2,3, 4,5, 6))
+
+group2 <- power22 %>%
+  filter(group==2, bin %in% c(5, 9, 13, 17, 21, 25), rank==1) %>% 
+  mutate(trial=c(1,2,3, 4,5, 6))
+```
+top-ranked trials:
+2021
+trial 1: focal = BBB 
+trial 2 = GPG
+trial 3 = OPP
+
+2022-1
+trial 1 = PBO
+trial 4 = GPO
+trial 6 = BBB
+
+2022-2
+trial 1 = BBO
+trial 4 = GOO
+trial 6 = GOP
+
+middle/low-ranked trials
+2022-1
+trial 2 = OOO
+trial 3 = PGG
+trial 5 = OPP
+
+2022-2
+trial 2 = OBB
+trial 3 = PBP
+trial 5 = OGO
+
+
+
+### How do the previous focal birds behave in following trials?
+
+```{r}
+# 2021
+f21.1 <- aggXbin21 %>%
+  filter( actor=="BBB", subject %in% c("GPG", "OPP")|
+          bin %in% bin_reintro21) #bin==14, bin==18, bin == 22 reintroductions
+
+f21.2 <- aggXbin21 %>%
+  filter( actor=="GPG", subject %in% c("BBB", "OPP")|
+          bin %in% bin_reintro21)
+
+f21.3 <- aggXbin21 %>%
+  filter( actor=="OPP", subject %in% c("GPG", "BBB")|
+          bin %in% bin_reintro21)
+
+#2022-1
+
+f22.1.1 <- aggXbin22 %>%
+   filter( actor=="PBO", subject %in% c("PBO", "GPO", "BBB")|
+          bin %in% bin_reintro22)
+t22.1.5 <- aggXbin22 %>%
+  filter(group==1, bin==5, subject=="PBO") %>% 
+  left_join(select(rank22, group, bin, actor, rank), by=c("group", "bin", "actor"))
+
+f22.1.2 <- aggXbin22 %>%
+   filter( actor=="GPO", subject %in% c("PBO", "GPO", "BBB")|
+          bin %in% bin_reintro22)
+
+f22.1.3 <- aggXbin22 %>%
+   filter( actor=="BBB", subject %in% c("PBO", "GPO", "BBB")|
+          bin %in% bin_reintro22)
+
+
+
+#2022-2
+
+f22.2.1 <- aggXbin22 %>%
+   filter( actor=="BBO", subject %in% c("BBO", "GOO", "GOP")|
+          bin %in% bin_reintro22)
+
+
+f22.2.2 <- aggXbin22 %>%
+   filter( actor=="GOO", subject %in% c("BBO", "GOO", "GOP")|
+          bin %in% bin_reintro22)
+
+f22.1.3 <- aggXbin22 %>%
+   filter( actor=="GOP", subject %in% c("BBO", "GOO", "GOP")|
+          bin %in% bin_reintro22)
+```
+
+
+0.
+###   Aggression directed to focal
+How much aggression does focal receive upon reintroduction? 
+How many different birds aggress against focal?
+
+Who are the top aggressors? between parentheses, no bullying pattern
+2021
+trial 1: focal = BBB 
+trial 2 = GPG
+trial 3 = OPP
+
+2022-1
+(trial 1 = PBO)
+trial 4 = GPO
+(trial 6 = BBB) pattern remained bullying
+
+2022-2
+(trial 1 = BBO)
+trial 4 = GOO
+(trial 6 = GOP)
+```{r number of aggressors to focal in top-ranked trials}
+
+# 2021
+rank21.1  <- power21 %>%
+  rename( actor=id) %>%
+  dplyr::select(bin, actor, rank) %>%
+              filter(bin==14)
+
+t21.1 <- aggXbin21 %>%
+  filter(bin==14, subject=="BBB") %>% 
+  left_join(rank21.1,
+            by=c(  "actor", "bin")) %>% 
+  mutate(group=2021, trial=1)
+
+
+rank21.2  <- power21 %>%
+  rename( actor=id) %>%
+  dplyr::select(bin, actor, rank) %>%
+              filter(bin==18)
+
+t21.2 <- aggXbin21 %>%
+  filter(bin==18, subject=="GPG") %>% 
+  left_join(rank21.2,
+            by=c(  "actor", "bin")) %>% 
+  mutate(group=2021, trial=2)
+
+rank21.3  <- power21 %>%
+  rename( actor=id) %>%
+  dplyr::select(bin, actor, rank) %>%
+              filter(bin==22)
+
+t21.3 <- aggXbin21 %>%
+  filter(bin==22, subject=="OPP") %>% 
+  left_join(rank21.3,
+            by=c(  "actor", "bin")) %>% 
+  mutate(group=2021, trial=3)
+
+
+
+
+# 2022 group1
+
+rank22 <-rename(power22, actor=id)
+
+t22.1.5 <- aggXbin22 %>%
+  filter(group==1, bin==5, subject=="PBO") %>% #double check top-ranked bird
+  left_join(dplyr::select(rank22, group, bin, actor, rank), by=c("group", "bin", "actor")) %>% 
+  mutate(trial=1)
+
+t22.1.17 <- aggXbin22 %>%
+  filter(group==1, bin==17, subject=="GPO") %>% 
+  left_join(dplyr::select(rank22, group, bin, actor, rank), 
+            by=c("group", "bin", "actor"))%>% 
+  mutate(trial=4)
+
+
+t22.1.25 <- aggXbin22 %>%
+  filter(group==1, bin==25, subject=="BBB") %>% 
+  left_join(dplyr::select(rank22, group, bin, actor, rank), by=c("group", "bin", "actor"))%>% 
+  mutate(trial=6)
+
+
+# 2022 group 2
+t22.2.5 <- aggXbin22 %>%
+  filter(group==2, bin==5, subject=="BBO") %>% 
+  left_join(dplyr::select(rank22, group, bin, actor, rank), by=c("group", "bin", "actor"))%>% 
+  mutate(trial=1)
+
+t22.2.17 <- aggXbin22 %>%
+  filter(group==2, bin==17, subject=="GOO") %>% 
+  left_join(dplyr::select(rank22, group, bin, actor, rank), by=c("group", "bin", "actor"))%>% 
+  mutate(trial=4)
+
+
+t22.2.25 <- aggXbin22 %>%
+  filter(group==2, bin==25, subject=="GOP") %>% 
+  left_join(dplyr::select(rank22, group, bin, actor, rank), by=c("group", "bin", "actor"))%>% 
+  mutate(trial=6)
+
+
+## combine all
+aggtofocals <- bind_rows(t21.1, t21.2, t21.3, 
+                         t22.1.5, t22.1.17,t22.1.25,
+                         t22.2.5, t22.2.17,t22.2.25)
+
+summ.aggtofocals <- aggtofocals %>% 
+  group_by(group, trial, bin) %>% 
+  summarise(n_agg=sum(n.aggXbin),
+            n_aggressors=n()) %>%
+  mutate(focalrank="top-ranked",
+         subject="focal")
+
+```
+ 
+ trial 2 = OOO
+trial 3 = PGG
+trial 5 = OPP
+
+2022-2
+trial 2 = OBB
+trial 3 = PBP
+trial 5 = OGO
+
+ 
+```{r number of aggressors to middle/low-ranked focals}
+t22.1.2 <- aggXbin22 %>%
+  filter(group==1, bin==9, subject=="OOO") %>% 
+  left_join(select(rank22, group, bin, actor, rank), by=c("group", "bin", "actor"))%>% 
+  mutate(trial=2)
+
+t22.1.3 <- aggXbin22 %>%
+  filter(group==1, bin==13, subject=="PGG") %>% 
+  left_join(select(rank22, group, bin, actor, rank), 
+            by=c("group", "bin", "actor"))%>% 
+  mutate(trial=3)
+
+
+t22.1.5 <- aggXbin22 %>%
+  filter(group==1, bin==21, subject=="OPP") %>% 
+  left_join(select(rank22, group, bin, actor, rank), by=c("group", "bin", "actor"))%>% 
+  mutate(trial=5)
+
+
+# 2022 group 2
+t22.2.2 <- aggXbin22 %>%
+  filter(group==2, bin==9, subject=="OBB") %>% 
+  left_join(select(rank22, group, bin, actor, rank), by=c("group", "bin", "actor"))%>% 
+  mutate(trial=2)
+
+t22.2.3 <- aggXbin22 %>%
+  filter(group==2, bin==13, subject=="PBP") %>% 
+  left_join(select(rank22, group, bin, actor, rank), by=c("group", "bin", "actor"))%>% 
+  mutate(trial=3)
+
+
+t22.2.5 <- aggXbin22 %>%
+  filter(group==2, bin==21, subject=="OGO") %>% 
+  left_join(select(rank22, group, bin, actor, rank), by=c("group", "bin", "actor"))%>% 
+  mutate(trial=5)
+
+
+## combine all
+aggtofocals_ml <- bind_rows( 
+                         t22.1.2, t22.1.3,t22.1.5,
+                         t22.2.2, t22.2.3,t22.2.5)
+
+summ.aggtofocals_ml <- aggtofocals_ml %>% 
+  group_by(group, trial, bin) %>% 
+  summarise(n_agg=sum(n.aggXbin),
+            n_aggressors=n()) %>%
+  mutate(focalrank="middle/low-ranked", 
+         subject="focal")
+```
+
+```{r}
+summ.aggtofocals.all <- bind_rows(summ.aggtofocals, summ.aggtofocals_ml)
+
+aggtofocals.summary <- summ.aggtofocals.all %>% 
+  group_by( focalrank) %>% # group_by(type, group) %>%
+  summarize(mean=mean(n_aggtofocal), 
+            sd=sd(n_aggtofocal),
+            n=n(),
+            se=sd/sqrt(n), 
+            min=min(n_aggtofocal),
+            max=max(n_aggtofocal))
+
+atttofocals.summary <- summ.aggtofocals.all %>% 
+  group_by( focalrank) %>% # group_by(type, group) %>%
+  summarize(mean=mean(n_aggressorstofocal), 
+            sd=sd(n_aggressorstofocal),
+            n=n(),
+            se=sd/sqrt(n), 
+            min=min(n_aggressorstofocal),
+            max=max(n_aggressorstofocal))
+```
+
+#### plot
+```{r}
+summ.aggtofocals.all$focalrank <- factor(summ.aggtofocals.all$focalrank, 
+                                     levels=c("top-ranked", "middle/low-ranked"))
+
+
+plot_aggtofocal <- ggplot(summ.aggtofocals, aes(y=n_aggtofocal, x=focalrank, color=focalrank)) +
+    geom_violin(width=0.5, color="black")+
+  geom_boxplot(width=0.2, color="grey") +
+  geom_jitter(  width=0.05) +
+  theme_classic() +
+  scale_y_continuous(limits = c(0,1200)) +
+  scale_color_manual( values=alpha(c("#fdae61", "#0571b0"),0.4)) +
+  labs(y="Aggressive events to focal",
+       x="Focal rank") +
+  theme(#axis.text = element_text(size=18),
+        #title = element_text(size=20),
+        legend.position = "none") 
+plot_aggtofocal
+
+plot_aggressorstofocal <- ggplot(summ.aggtofocals, aes(y=n_aggressorstofocal, x=focalrank, color=focalrank)) +
+    geom_violin(width=0.5, color="black")+
+  geom_boxplot(width=0.2, color="grey") +
+  geom_jitter(  width=0.05) +
+  theme_classic() +
+  scale_y_continuous(limits = c(0,20)) +
+  scale_color_manual( values=alpha(c("#fdae61", "#0571b0"),0.4)) +
+  labs(y="Distinct aggressors of focal",
+       x="Focal rank") +
+  theme(#axis.text = element_text(size=18),
+        #title = element_text(size=20),
+        legend.position = "none") 
+plot_aggressorstofocal
+
+ggpubr::ggarrange(plot_aggtofocal, plot_aggressorstofocal, 
+                  nrow=1)
+
+#ggsave("figures/plot_aggressiontofocals.pdf", width=4, height = 3)
+
+```
+
+```{r}
+plot_focal <- ggplot(summ.aggtofocals.all, aes(y=n_aggtofocal, x=focalrank, color=focalrank, fill=focalrank)) + #interaction(focalrank, focal)
+  
+  scale_color_manual(values = c("#ff6600ff",   "#0571b0")) +   
+  scale_fill_manual(values = c("#ff6600ff","#0571b0")) +  
+   
+  #scale_y_continuous(limits = c(0.00,1.00)) + 
+  
+  # density
+   ggdist::stat_halfeye(
+    ## custom bandwidth
+    adjust = .5, 
+     ## adjust height
+    width = .4,
+    height = .4,
+    ## move geom to the right
+    justification = -.35, #-.1
+    ## remove slab interval
+    .width = 0, 
+    point_colour = NA
+    ##color
+    
+  ) +
+  
+  # boxplot
+  geom_boxplot(
+               color="black", fill="white",outlier.shape = NA,
+               width = .2, # 0.12
+  ) +
+  
+  # points
+  ggdist::stat_dots(
+    position = position_jitter(
+      seed = 1, width = .1
+    ),
+    layout="weave",
+    size=5, alpha =.7, 
+    #shape = 21, 
+    #point_fill=c("#ff6600ff","#b3b3b3ff"),
+    ## orientation to the left
+    side = "left",
+    ## move geom to the left
+    justification = 1.25,
+    ## adjust grouping (binning) of observations
+    binwidth = 0.01 # 0.01
+  ) +
+  
+  # aesthetics
+  theme_classic() +
+  scale_y_continuous(limits = c(0,1200)) +
+  labs(x= "Focal rank", y = "Aggressive events to focal") 
+  
+plot_focal
+
+plot_naggressors <- ggplot(summ.aggtofocals.all, aes(y=n_aggressorstofocal, x=focalrank, color=focalrank, fill=focalrank)) + #interaction(focalrank, focal)
+  
+  scale_color_manual(values = c("#ff6600ff",   "#0571b0")) +   
+  scale_fill_manual(values = c("#ff6600ff","#0571b0")) +  
+   
+  #scale_y_continuous(limits = c(0.00,1.00)) + 
+  
+  # density
+   ggdist::stat_halfeye(
+    ## custom bandwidth
+    adjust = .5, 
+     ## adjust height
+    width = .4,
+    height = .4,
+    ## move geom to the right
+    justification = -.35, #-.1
+    ## remove slab interval
+    .width = 0, 
+    point_colour = NA
+    ##color
+    
+  ) +
+  
+  # boxplot
+  geom_boxplot(
+               color="black", fill="white",outlier.shape = NA,
+               width = .2, # 0.12
+  ) +
+  
+  # points
+  ggdist::stat_dots(
+    position = position_jitter(
+      seed = 1, width = .1
+    ),
+    layout="weave",
+    size=5, alpha =.7, 
+    #shape = 21, 
+    #point_fill=c("#ff6600ff","#b3b3b3ff"),
+    ## orientation to the left
+    side = "left",
+    ## move geom to the left
+    justification = 1.25,
+    ## adjust grouping (binning) of observations
+    binwidth = 0.01 # 0.01
+  ) +
+  
+  # aesthetics
+  theme_classic() +
+  scale_y_continuous(limits = c(0,20)) +
+  labs(x= "Focal rank", y = "Distinct aggressors of focal") 
+  
+
+ggarrange(plot_focal, plot_naggressors,
+          nrow = 1,
+          common.legend = TRUE, legend = "none",
+          labels = "auto")
+
+ggsave("figures/aggressiontofocals.pdf", width = 6, height = 3)
+
+```
+
+
+
+
+## Similar ranked birds as focals
+
+
+
+```{r}
+# group 2021
+
+all2021 <- aggXbin21 %>% 
+  rename(id=actor) %>% left_join(power21, by=c("bin", "id"))
+
+rank21.1.13  <- power21 %>%
+  rename( actor=id) %>%
+  dplyr::select(bin, actor, rank) %>%
+              filter(bin==13)
+
+t21.1.bob <- aggXbin21 %>%
+  filter(bin==13, subject=="BOB") %>% 
+  left_join(rank21.1.13,
+            by=c(  "actor", "bin")) %>% 
+  mutate(group=2021, trial=1)
+
+
+rank21.2.17  <- power21 %>%
+  rename( actor=id) %>%
+  dplyr::select(bin, actor, rank) %>%
+              filter(bin==17)
+
+t21.2.bbb <- aggXbin21 %>%
+  filter(bin==17, subject=="BBB") %>% 
+  left_join(rank21.2.17,
+            by=c(  "actor", "bin")) %>% 
+  mutate(group=2021, trial=2)
+
+
+rank21.3.21  <- power21 %>%
+  rename( actor=id) %>%
+  dplyr::select(bin, actor, rank) %>%
+              filter(bin==21)
+
+t21.3.bob <- aggXbin21 %>%
+  filter(bin==21, subject=="BOB") %>% 
+  left_join(rank21.3.21,
+            by=c(  "actor", "bin")) %>% 
+  mutate(group=2021, trial=3)
+
+
+
+
+# 2022 group1
+
+rank22 <-rename(power22, actor=id)
+
+# focal PBO
+rank22 %>% 
+  filter(group==1, bin==4)
+t22.1.4 <- aggXbin22 %>%
+  filter(group==1, bin==4, subject=="PPO") %>% #double check top-ranked bird
+  left_join(dplyr::select(rank22, group, bin, actor, rank), by=c("group", "bin", "actor")) %>% 
+  mutate(trial=1)
+
+# focal GPO
+rank22 %>% 
+  filter(group==1, bin==16)
+t22.1.16 <- aggXbin22 %>%
+  filter(group==1, bin==16, subject=="OPP") %>% 
+  left_join(dplyr::select(rank22, group, bin, actor, rank), 
+            by=c("group", "bin", "actor"))%>% 
+  mutate(trial=4)
+
+#focal BBB
+rank22 %>% 
+  filter(group==1, bin==24)
+t22.1.24 <- aggXbin22 %>%
+  filter(group==1, bin==24, subject=="BOB") %>% 
+  left_join(dplyr::select(rank22, group, bin, actor, rank), by=c("group", "bin", "actor"))%>% 
+  mutate(trial=6)
+
+
+# 2022 group 2
+rank22 %>% 
+  filter(group==2, bin==4)
+t22.2.4 <- aggXbin22 %>%
+  filter(group==2, bin==4, subject=="OGO") %>% 
+  left_join(dplyr::select(rank22, group, bin, actor, rank), by=c("group", "bin", "actor"))%>% 
+  mutate(trial=1)
+
+rank22 %>% 
+  filter(group==2, bin==16)
+t22.2.16 <- aggXbin22 %>%
+  filter(group==2, bin==16, subject=="OGO") %>% 
+  left_join(dplyr::select(rank22, group, bin, actor, rank), by=c("group", "bin", "actor"))%>% 
+  mutate(trial=4)
+
+
+rank22 %>% 
+  filter(group==2, bin==24)
+t22.2.24 <- aggXbin22 %>%
+  filter(group==2, bin==24, subject=="GOO") %>% 
+  left_join(dplyr::select(rank22, group, bin, actor, rank), by=c("group", "bin", "actor"))%>% 
+  mutate(trial=6)
+
+
+## combine all
+aggtosimilarranked <- bind_rows(t21.1.bob, t21.2.bbb, t21.3.bob, 
+                         t22.1.4, t22.1.16,t22.1.24,
+                         t22.2.4, t22.2.16,t22.2.24)
+
+summ.aggtosamerank <- aggtosimilarranked %>% 
+  group_by(group,trial,  bin) %>% 
+   summarise(n_agg=sum(n.aggXbin),
+            n_aggressors=n()) %>%
+  mutate(focalrank="top-ranked",
+         subject="similar-ranked")
+```
+ trial 2 = OOO
+trial 3 = PGG
+trial 5 = OPP
+
+2022-2
+trial 2 = OBB
+trial 3 = PBP
+trial 5 = OGO
+
+ 
+```{r number of aggressors to middle/low-ranked focals}
+
+rank22 %>% 
+  filter(group==1, bin==8)
+t22.1.8 <- aggXbin22 %>%
+  filter(group==1, bin==8, subject=="GGP") %>% 
+  left_join(select(rank22, group, bin, actor, rank), by=c("group", "bin", "actor"))%>% 
+  mutate(trial=2)
+
+rank22 %>% 
+  filter(group==1, bin==12)
+t22.1.12 <- aggXbin22 %>%
+  filter(group==1, bin==12, subject=="GGP") %>% 
+  left_join(select(rank22, group, bin, actor, rank), 
+            by=c("group", "bin", "actor"))%>% 
+  mutate(trial=3)
+
+rank22 %>% 
+  filter(group==1, bin==20)
+t22.1.20 <- aggXbin22 %>%
+  filter(group==1, bin==20, subject=="BOB") %>% 
+  left_join(select(rank22, group, bin, actor, rank), by=c("group", "bin", "actor"))%>% 
+  mutate(trial=5)
+
+
+# 2022 group 2
+rank22 %>% 
+  filter(group==2, bin==8)
+t22.2.8 <- aggXbin22 %>%
+  filter(group==2, bin==8, subject=="PBP") %>% 
+  left_join(select(rank22, group, bin, actor, rank), by=c("group", "bin", "actor"))%>% 
+  mutate(trial=2)
+
+rank22 %>% 
+  filter(group==2, bin==12)
+t22.2.12 <- aggXbin22 %>%
+  filter(group==2, bin==12, subject=="OGO") %>% 
+  left_join(select(rank22, group, bin, actor, rank), by=c("group", "bin", "actor"))%>% 
+  mutate(trial=3)
+
+rank22 %>% 
+  filter(group==2, bin==20)
+t22.2.20 <- aggXbin22 %>%
+  filter(group==2, bin==20, subject=="POO") %>% 
+  left_join(select(rank22, group, bin, actor, rank), by=c("group", "bin", "actor"))%>% 
+  mutate(trial=5)
+
+
+## combine all
+aggtosimilarranked_ml <- bind_rows( 
+                         t22.1.8, t22.1.12,t22.1.20,
+                         t22.2.8, t22.2.12,t22.2.20)
+
+summ.aggtosamerank_ml <- aggtosimilarranked_ml %>% 
+  group_by(group, trial, bin) %>% 
+  summarise(n_agg=sum(n.aggXbin),
+            n_aggressors=n()) %>%
+  mutate(focalrank="middle/low-ranked", 
+         subject="similar-ranked")
+```
+
+
+## Analysing directed aggression
+
+### focals vs similar ranked
+```{r}
+summ.aggtosamerank.all <- bind_rows(summ.aggtosamerank, summ.aggtosamerank_ml)
+summ.agg <- bind_rows(summ.aggtosamerank.all, summ.aggtofocals.all) %>% 
+  mutate( group=recode(group, '1'="2022-1", '2'="2022-2", '2021'='2021'),
+          groupsize=if_else(subject=="focal" & group=='2021', 20, 
+                            if_else(subject!="focal" & group=='2021', 19, 
+                                    if_else(subject=="focal" & group!='2021', 11, 10))),
+          n_agcontrol=n_aggressors/groupsize) %>% 
+                                            #if_else(subject!="focal" & group!='2021', 19,'na' )
+  unite(cat, c(focalrank, subject), sep=".", remove=FALSE)
+glimpse(summ.agg)
+
+
+
+agg.summary <- summ.agg %>% 
+  group_by(focalrank ) %>%  #focalrank subject
+  summarize(mean=mean(n_agg), 
+            sd=sd(n_agg),
+            n=n(),
+            se=sd/sqrt(n), 
+            min=min(n_agg),
+            max=max(n_agg))
+
+att.summary <- summ.agg %>% 
+  ungroup() %>% 
+  #group_by( focalrank) %>% # group_by(type, group) %>%
+  summarize(mean=mean(n_agcontrol), 
+            sd=sd(n_agcontrol),
+            n=n(),
+            se=sd/sqrt(n), 
+            min=min(n_agcontrol),
+            max=max(n_agcontrol))
+
+
+```
+#### number agonistic events
+
+```{r model n aggression received}
+# distribution
+fitdistrplus::plotdist(summ.agg$n_agg)
+fitdistrplus::descdist(summ.agg$n_agg, discrete = TRUE)
+
+
+m.agg <- lme4::glmer(n_agg ~ focalrank*subject + (1|group),
+                     family = "poisson", 
+                     data = summ.agg)
+performance::check_overdispersion(m.agg)
+
+# Negative binomial GLMM using the function glmer.nb()
+mnb1 <- lme4::glmer.nb(n_agg ~ focalrank*subject + (1|group),
+                  data = summ.agg) #control = glmerControl(optimizer = "bobyqa"))
+performance::check_overdispersion(mnb1)
+                 
+mnb2 <- lme4::glmer.nb(n_agg ~ focalrank+subject + (1|group),
+                  data = summ.agg)
+
+mnb0 <- lme4::glmer.nb(n_agg ~ 1 + (1|group),
+                  data = summ.agg)
+
+
+# AIC
+AIC(mnb1 , mnb2 , mnb0 )
+
+
+
+# model diagnostics
+modsim <- DHARMa::simulateResiduals(mnb1)
+
+plot(modsim)
+
+
+# p-values (subject=group/focals & focalrank=top/control)
+m_int <- lme4::glmer.nb(n_agg ~ focalrank+subject + (1|group),
+                  data = summ.agg)
+lmtest::lrtest(mnb1, m_int) 
+
+m_focal<- lme4::glmer.nb(n_agg ~ focalrank + (1|group),
+                  data = summ.agg)
+lmtest::lrtest(mnb1, m_focal) # focal birds receive more aggression than similarly ranked birds
+
+
+m_rank<- lme4::glmer.nb(n_agg ~ subject + (1|group),
+                  data = summ.agg)
+lmtest::lrtest(mnb1, m_rank) # 
+
+
+summary(mnb1)
+
+
+
+```
+#### number of aggressors
+
+```{r model n aggressors controlled for by group size}
+# normally distributed?
+# shapiro test p >0.05, data normally distributed
+ggpubr::ggqqplot(summ.agg, "n_agcontrol")
+shapiro.test(summ.agg$n_agcontrol)
+
+range(summ.agg$n_agcontrol)
+
+# distribution
+fitdistrplus::plotdist(summ.agg$n_agcontrol)
+fitdistrplus::descdist(summ.agg$n_agcontrol, discrete = FALSE)
+fit.beta <- fitdistrplus::fitdist(summ.agg$n_agcontrol, 'beta')
+plot(fit.beta)
+fit.beta$aic
+
+
+# model: abs balance change ~ focalrank (+ or *) focal + (1|group) + (1|id)
+beta_full <- glmmTMB(n_agcontrol ~ focalrank*subject + (1|group) ,
+                     family = beta_family(), 
+                     data = summ.agg)
+summary(beta_full)
+
+beta_change <- glmmTMB(n_agcontrol ~ focalrank+subject + (1|group) ,
+                     family = beta_family(), 
+                     data = summ.agg)
+summary(beta_change)
+
+beta0 <- glmmTMB(n_agcontrol ~ 1 + (1|group) ,
+                     family = beta_family(), 
+                     data = summ.agg)
+summary(beta0)
+
+# AIC
+AIC(beta_full, beta_change, beta0)
+
+
+
+# model diagnostics
+modsim <- DHARMa::simulateResiduals(beta_full)
+
+plot(modsim)
+
+
+# p-values 
+beta_focal <- glmmTMB(n_agcontrol ~ focalrank + (1|group) ,
+                     family = beta_family(), 
+                     data = summ.agg)
+
+beta_rank<- glmmTMB(n_agcontrol ~ subject + (1|group) ,
+                     family = beta_family(), 
+                     data = summ.agg)
+
+lmtest::lrtest(beta_full, beta_focal) # being a focal results in greater abs balance change
+lmtest::lrtest(beta_full, beta_rank) # trial rank affects abs balance change
+
+lmtest::lrtest(beta_full, beta_change) # interaction between focal rank and being a focal is significant. 
+
+
+
+
+summary(beta_full)
+
+
+```
+####plot
+```{r}
+summ.agg$focalrank <- factor(summ.agg$focalrank, 
+                                     levels=c("top-ranked", "middle/low-ranked"))
+
+plot_aggsumm <- ggplot(summ.agg, aes(y=n_agg, x=subject, color=focalrank, fill=focalrank)) + #interaction(focalrank, focal)
+  
+  scale_color_manual(values = c("#ff6600ff",   "#0571b0")) +   
+  scale_fill_manual(values = c("#ff6600ff","#0571b0")) +  
+   
+  #scale_y_continuous(limits = c(0.00,1.00)) + 
+  
+  # density
+   ggdist::stat_halfeye(
+    ## custom bandwidth
+    adjust = .5, 
+     ## adjust height
+    width = .4,
+    height = .4,
+    ## move geom to the right
+    justification = -.35, #-.1
+    ## remove slab interval
+    .width = 0, 
+    point_colour = NA,
+    ##color
+    slab_alpha=0.5
+    
+  ) +
+  
+  # boxplot
+  geom_boxplot(
+               color="black", fill="white",outlier.shape = NA,
+               width = .2, # 0.12
+  ) +
+  
+  # points
+  ggdist::stat_dots(
+    position = position_jitter(
+      seed = 1, width = .1
+    ),
+    layout="weave",
+    size=5, alpha =.7, 
+    #shape = 21, 
+    #point_fill=c("#ff6600ff","#b3b3b3ff"),
+    ## orientation to the left
+    side = "left",
+    ## move geom to the left
+    justification = 1.25,
+    ## adjust grouping (binning) of observations
+    binwidth = 0.01 # 0.01
+  ) +
+  
+  # aesthetics
+  theme_classic() + 
+  theme(axis.text = element_text(size=11)) +
+  scale_y_continuous(limits = c(0,1200)) +
+  labs(x= "Subject", y = "Aggressive events") +
+
+  facet_grid(~focalrank) +
+  theme( legend.position = "none",
+         strip.background  = element_blank(),
+         panel.grid.major = element_blank(),
+         panel.border = element_blank(),
+         #axis.ticks = element_blank(),
+         panel.grid.minor.x=element_blank(),
+         panel.grid.major.x=element_blank() ) 
+  
+plot_aggsumm
+
+
+## similar to aggression balance change plot
+summ.agg <- summ.agg %>% 
+  mutate( group=recode(group, '1'="2022-1", '2'="2022-2", '2014'='2021') ) %>% 
+  unite(cat, c(focalrank, subject), sep=".", remove=FALSE)
+glimpse(summ.agg)
+
+summ.agg$focalrank <- factor(summ.agg$focalrank, 
+                             levels = c("top-ranked", "middle/low-ranked"),
+                             labels = c("Top-\nranked", "Middle/low-\nranked"))
+summ.agg$cat <- factor(summ.agg$cat, 
+                                       levels = c("top-ranked.focal", "top-ranked.similar-ranked",
+                                                  "middle/low-ranked.focal", "middle/low-ranked.similar-ranked"))
+summ.agg$subject <- factor(summ.agg$subject , 
+                               levels = c("focal","similar-ranked"),
+                               labels = c("Toward focal birds upon reintroduction",
+                                          "Toward similar-ranked birds prior to reintroduction"))
+
+plot_aggsumm1 <- ggplot(summ.agg, aes(y=n_agg, x=focalrank, color=cat, fill=cat)) + #interaction(focalrank, focal)
+  
+scale_color_manual(values = c("#ff6600ff", "#b3b3b3ff",  "#0571b0",alpha("#b3b3b3ff", 0.4))) +   
+  scale_fill_manual(values = c("#ff6600ff","#b3b3b3ff", "#0571b0", alpha("#b3b3b3ff", 0.4))) +  
+   
+  #scale_y_continuous(limits = c(0.00,1.00)) + 
+  
+  # density
+   ggdist::stat_halfeye(
+    ## custom bandwidth
+    adjust = .5, 
+     ## adjust height
+    width = .4,
+    height = .4,
+    ## move geom to the right
+    justification = -.35, #-.1
+    ## remove slab interval
+    .width = 0, 
+    point_colour = NA,
+    ##color
+    slab_alpha=0.5
+    
+  ) +
+  
+  # boxplot
+  geom_boxplot(
+               color="black", fill="white",outlier.shape = NA,
+               width = .2, # 0.12
+  ) +
+  
+  # points
+  ggdist::stat_dots(
+    position = position_jitter(
+      seed = 1, width = .1
+    ),
+    layout="weave",
+    size=5, alpha =.7, 
+    #shape = 21, 
+    #point_fill=c("#ff6600ff","#b3b3b3ff"),
+    ## orientation to the left
+    side = "left",
+    ## move geom to the left
+    justification = 1.25,
+    ## adjust grouping (binning) of observations
+    binwidth = 0.01 # 0.01
+  ) +
+  
+  # aesthetics
+  theme_classic() + 
+  theme(axis.text = element_text(size=11)) +
+  scale_y_continuous(limits = c(0,1200)) +
+  labs(x= "Trial", y = "Aggressive events") +
+
+  facet_grid(~subject) +
+  theme( legend.position = "none",
+         strip.background  = element_blank(),
+         strip.text = element_text(size=11),
+         axis.text = element_text(size=11),
+         panel.grid.major = element_blank(),
+         panel.border = element_blank(),
+         #axis.ticks = element_blank(),
+         panel.grid.minor.x=element_blank(),
+         panel.grid.major.x=element_blank() ) 
+  
+plot_aggsumm1
+
+
+```
+
+```{r}
+
+summ.agg$focalrank <- factor(summ.agg$focalrank, 
+                             levels = c("top-ranked", "middle/low-ranked"),
+                             labels = c("Top-\nranked", "Middle/low-\nranked"))
+summ.agg$cat <- factor(summ.agg$cat, 
+                                       levels = c("top-ranked.focal", "top-ranked.similar-ranked",
+                                                  "middle/low-ranked.focal", "middle/low-ranked.similar-ranked"))
+summ.agg$subject <- factor(summ.agg$subject , 
+                               levels = c("focal","similar-ranked"),
+                               labels = c("Toward focal birds upon reintroduction",
+                                          "Toward similar-ranked birds prior to reintroduction"))
+
+plot_naggressors <- ggplot(summ.agg, aes(y=n_agcontrol, x=focalrank, color=cat, fill=cat)) + #interaction(focalrank, focal)
+  
+scale_color_manual(values = c("#ff6600ff", "#b3b3b3ff",  "#0571b0",alpha("#b3b3b3ff", 0.4))) +   
+  scale_fill_manual(values = c("#ff6600ff","#b3b3b3ff", "#0571b0", alpha("#b3b3b3ff", 0.4))) +  
+   
+  #scale_y_continuous(limits = c(0.00,1.00)) + 
+  
+  # density
+   ggdist::stat_halfeye(
+    ## custom bandwidth
+    adjust = .5, 
+     ## adjust height
+    width = .4,
+    height = .4,
+    ## move geom to the right
+    justification = -.35, #-.1
+    ## remove slab interval
+    .width = 0, 
+    point_colour = NA,
+    ##color
+    slab_alpha=0.5
+    
+  ) +
+  
+  # boxplot
+  geom_boxplot(
+               color="black", fill="white",outlier.shape = NA,
+               width = .2, # 0.12
+  ) +
+  
+  # points
+  ggdist::stat_dots(
+    position = position_jitter(
+      seed = 1, width = .1
+    ),
+    layout="weave",
+    size=5, alpha =.7, 
+    #shape = 21, 
+    #point_fill=c("#ff6600ff","#b3b3b3ff"),
+    ## orientation to the left
+    side = "left",
+    ## move geom to the left
+    justification = 1.25,
+    ## adjust grouping (binning) of observations
+    binwidth = 0.01 # 0.01
+  ) +
+  
+  # aesthetics
+  theme_classic() + 
+  theme(axis.text = element_text(size=11)) +
+  #scale_y_continuous(limits = c(0,1200)) +
+  labs(x= "Trial", y = "Distinct aggressors") +
+
+  facet_grid(~subject) +
+  theme( legend.position = "none",
+         strip.background  = element_blank(),
+         strip.text = element_text(size=11),
+         axis.text = element_text(size=11),
+         panel.grid.major = element_blank(),
+         panel.border = element_blank(),
+         #axis.ticks = element_blank(),
+         panel.grid.minor.x=element_blank(),
+         panel.grid.major.x=element_blank() ) 
+  
+plot_naggressors
+
+ggsave("figures/n_aggressors.pdf",width = 6, height = 3)# width= 140,  units="mm", dpi = 300) # width = 6, height = 3)
+
+
+```
+
+
+### all bottom-ranked
+2021
+```{r}
+rank21 <- power21 %>%
+  rename( actor=id) %>%
+  dplyr::select(bin, actor, rank)
+
+aggtobottom <- aggXbin21 %>%
+  left_join(rank21, by=c( "bin", "actor")) %>% 
+  rename(rank_actor=rank) %>% 
+   left_join(rank21 %>%  rename(subject=actor), by=c( "bin", "subject")) %>% 
+  rename(rank_subject=rank)
+
+aggtobottom19 <- aggtobottom %>% 
+    group_by( bin) %>% 
+    filter(bin %in% c(12, 13, 16, 17, 20, 21),
+           rank_subject==19) %>% 
+    summarise(n_aggtofocal=sum(n.aggXbin),
+            n_aggressorstofocal=n())
+
+aggtobottom20 <- aggtobottom %>% 
+    group_by( bin) %>% 
+    filter(bin %in% c(11, 14, 15, 18, 19, 22),
+           rank_subject==20) %>% 
+    summarise(n_aggtofocal=sum(n.aggXbin),
+            n_aggressorstofocal=n())
+
+aggtobottom <- bind_rows(aggtobottom20, aggtobottom19) %>% 
+  arrange(bin)
+
+plot_aggtobottom <- ggplot(aggtobottom, aes(x=bin, y=n_aggtofocal)) +
+  geom_point( ) +
+  geom_line() +
+  theme_classic() +
+  labs(x="social dominance pattern assessment periods", y="total aggressive events to bottom-ranked bird")+
+  #scale_color_manual(values = c("#1BD8D3", "#1E88E5")) +
+   scale_x_continuous(limits = c(11, 22), # change to 4 with removal period included
+                     breaks= c(11:22)) +
+  theme(legend.position = "bottom")
+
+plot_aggtobottom
+
+```
+
+2022
+```{r}
+rank22 <- power22 %>%
+  rename( actor=id) %>%
+  dplyr::select(group, bin, actor, rank)
+
+aggtobottom22 <- aggXbin22 %>%
+  left_join(rank22, by=c( "bin", "actor")) %>% 
+  rename(rank_actor=rank) %>% 
+   left_join(rank22 %>%  rename(subject=actor), by=c( "bin", "subject")) %>% 
+  rename(rank_subject=rank)
+
+aggtobottom22.10 <- aggtobottom22 %>% 
+    group_by( group, bin) %>% 
+    filter(bin %in% c(3,4,7,8,11,12,15,16,19,20, 23,24),
+           rank_subject==10) %>% 
+    summarise(n_aggtofocal=sum(n.aggXbin),
+            n_aggressorstofocal=n())
+
+aggtobottom22.11 <- aggtobottom22 %>% 
+    group_by(group,  bin) %>% 
+    filter(bin %in% c(1,2, 5,6,9, 10, 13,14, 17,18, 21,22, 25,26),
+           rank_subject==11) %>% 
+    summarise(n_aggtofocal=sum(n.aggXbin),
+            n_aggressorstofocal=n())
+
+aggtobottom22 <- bind_rows(aggtobottom22.10, aggtobottom22.11) %>% 
+  arrange(group, bin)
+
+aggtobottom22$group <- as.factor(aggtobottom22$group)
+
+#group.colors<- c('1'="#009E8F", '2'="#609A9F") #c("#CACC57","#609A9F") "#009E8F"
+
+plot_aggtobottom22 <- ggplot(aggtobottom22, aes(x=bin, y=n_aggtofocal, group=group, color=group)) +
+  geom_point( ) +
+  geom_line() +
+  theme_classic() +
+  labs(x="social dominance pattern assessment periods", y="total aggressive events to bottom-ranked bird")+
+   scale_color_manual(values = c("#DEAE3B", "#40B0A6")) +
+   scale_x_continuous(limits = c(1, 26), # change to 4 with removal period included
+                     breaks= c(1:26)) +
+  theme(legend.position = "bottom")
+
+plot_aggtobottom22
+
+
+```
+
+
+
+
+# aggression comparison
+How much aggression directed to 3 bottom-ranked or the 3 close-ranked birds?
+
+
+
+
+# plot aggression summary
+
+```{r}
+ggarrange(plot_deltabalance,
+          plot_deltabalance,
+          plot_aggsumm1,
+          labels = "auto", 
+          font.label = list(size = 12, color = "black", face = "bold", family = NULL),
+          nrow=3 )
+
+
+#ggsave("./figures/plot_deltaXfocalXtrial.pdf", width = 6, height = 3)
+
+ggsave("./figures/fig_aggsummary.pdf", width= 140,  units="mm", dpi = 300) #height=140,
+```
+
